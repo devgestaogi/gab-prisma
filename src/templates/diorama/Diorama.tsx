@@ -7,7 +7,7 @@ import {CorDestaque, Cenas, Fontes, FONTE_SORA, LegendaKaraoke, LogoGI, Narracao
 import type {DadosT, EstiloLegenda, EventoSom, InfoCena, P} from '../comum';
 import {Mundo} from './mundo';
 import {CartaoVidro, Carimbo, Pilula, PilhaTopo, segmentosHud} from './hud';
-import {temposDeVoo} from './camera';
+import {DURACAO_VOO, temposDeVoo} from './camera';
 import {FUNDO, layoutDasCenas, planejamentoDe, revelacoes} from './tipos';
 import {Planos, segmentosDoDiorama, trocasDePlanos} from './planos';
 import type {MarcaVeu, Segmento} from './planos';
@@ -114,7 +114,17 @@ const planejar = (dados: DadosT, fps: number): Plano => {
   // folga de 3 quadros entre quaisquer dois; volumes de 0,25 a 0,5, sempre abaixo da voz
   const ev: EventoSom[] = [];
   if (!imagem) reveal.forEach((t) => ev.push({som: 'pop', f: Math.round(t * fps), vol: 0.4, prioridade: 1}));
-  (imagem ? trocasDePlanos(segs) : temposDeVoo(dados).map((ini) => Math.round(ini * fps))).forEach((f) => ev.push({som: 'whoosh', f, vol: imagem ? 0.35 : 0.4, prioridade: 2}));
+  // o whoosh só vale enquanto a transição acontece: no modo imagem, até 3 quadros depois do início do segmento novo
+  // (a entrada visual assenta ali); no mundo 3D, enquanto dura o voo da câmera
+  if (imagem) {
+    const trocas = trocasDePlanos(segs);
+    segs.slice(1).forEach((s, k) => ev.push({som: 'whoosh', f: trocas[k], vol: 0.35, prioridade: 2, ate: s.iniF + 3}));
+  } else {
+    temposDeVoo(dados).forEach((ini) => {
+      const f = Math.round(ini * fps);
+      ev.push({som: 'whoosh', f, vol: 0.4, prioridade: 2, ate: f + Math.round(DURACAO_VOO * fps)});
+    });
+  }
   segmentosHud(dados).forEach((h) => ev.push({som: 'toque', f: Math.round(h.ini * fps), vol: 0.35, prioridade: 2, ate: Math.round((h.ini + h.dur) * fps)}));
   validas.forEach((x) => {
     const c = cenas[x.i];
