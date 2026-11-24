@@ -53,6 +53,7 @@
   .selo.livre { background: rgba(143,124,247,.14); color: var(--roxo); }
   .aviso { min-height: 20px; margin: 0 0 18px; font-size: 13px; color: var(--laranja); }
   .vazio { color: var(--suave); font-size: 13px; }
+  .erro { min-height: 20px; margin: 10px 0 0; font-size: 13px; color: #ff6b6b; }
 </style>
 </head>
 <body>
@@ -70,6 +71,7 @@
     <div class="rotulo">Prompt do roteiro</div>
     <textarea id="prompt" placeholder="Ex.: vídeo de 40 s sobre vendas com o Ítalo, usando a notícia das vendas do GTA 6 e o pilar de vendas da Gestão de Impacto. Termina chamando para a imersão."></textarea>
     <div class="linha"><span id="conta">0 caracteres</span><button id="enviar" disabled>Criar vídeo</button></div>
+    <p class="erro" id="erro" role="alert"></p>
     <div class="passos" id="passos">
       <div class="etapa" data-e="novo"><i></i>Prompt recebido · esperando o Claude</div>
       <div class="etapa" data-e="roteiro"><i></i>Escrevendo o roteiro</div>
@@ -103,7 +105,8 @@
   }
   // ── template de edição ──────────────────────────────────────────────────────
   // '' = o Claude escolhe pelo assunto; senão o nome da pasta em templates/
-  let escolhido = '', lista = [], travado = false;
+  // persistido = template gravado no pedido reaberto (pode ter saído da pasta depois: vira cartão indisponível)
+  let escolhido = '', lista = [], travado = false, persistido = null, carregou = false;
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const cartao = (x) => `<button type="button" class="tpl" role="radio" data-nome="${esc(x.nome)}" title="${esc(x.resumo)}">
       <div class="capas">${(x.capas || []).map((c) => `<img src="${esc(c)}" alt="" loading="lazy">`).join('')}</div>
@@ -111,40 +114,53 @@
       <b>${esc(x.titulo)}</b><small>${esc(x.quando_usar)}</small><small>${esc(x.duracao)}</small></button>`;
   const livre = `<button type="button" class="tpl" role="radio" data-nome=""><div class="capas livre">✦</div>
       <span class="selo livre">automático</span><b>O Claude escolhe</b><small>Pelo assunto, entre os templates prontos.</small></button>`;
+  const indisponivel = (x) => `<button type="button" class="tpl" role="radio" data-nome="${esc(x.nome)}"><div class="capas livre">?</div>
+      <span class="selo receita">fora da pasta</span><b>${esc(x.titulo || x.nome)}</b><small>Template gravado neste pedido; não está mais na pasta de templates.</small></button>`;
   function marcar() {
     $('templates').querySelectorAll('.tpl').forEach((e) => {
       const on = e.dataset.nome === escolhido;
       e.classList.toggle('on', on); e.setAttribute('aria-checked', String(on)); e.disabled = travado;
     });
-    const x = lista.find((y) => y.nome === escolhido);
+    const x = lista.find((y) => y.nome === escolhido) || (persistido && persistido.nome === escolhido ? persistido : null);
     $('aviso').textContent = x && x.status !== 'pronto'
       ? 'Este template ainda é receita: o motor não faz esse estilo. O Claude avisa antes de começar e propõe construir o estilo ou usar o pronto mais parecido.'
       : '';
   }
-  fetch('/api/templates').then((r) => r.json()).then((l) => {
-    lista = Array.isArray(l) ? l : [];
-    if (escolhido && !lista.some((y) => y.nome === escolhido)) escolhido = '';
-    $('templates').innerHTML = livre + lista.map(cartao).join('');
+  // redesenha os cartões com o que já chegou (lista e/ou pedido reaberto), em qualquer ordem de resposta
+  function desenhar() {
+    if (!carregou) return;
+    const fora = persistido && !lista.some((y) => y.nome === persistido.nome) ? indisponivel(persistido) : '';
+    $('templates').innerHTML = livre + lista.map(cartao).join('') + fora;
     $('templates').querySelectorAll('.tpl').forEach((e) => { e.onclick = () => { if (!travado) { escolhido = e.dataset.nome; marcar(); } }; });
     marcar();
-  }).catch(() => { $('templates').innerHTML = '<div class="vazio">não consegui ler os templates; o pedido segue sem template</div>'; });
+  }
+  fetch('/api/templates').then((r) => r.json()).then((l) => {
+    lista = Array.isArray(l) ? l : [];
+    carregou = true;
+    // seleção livre que sumiu da pasta volta para "o Claude escolhe"; a de pedido já enviado fica
+    if (!travado && escolhido && !lista.some((y) => y.nome === escolhido)) escolhido = '';
+    desenhar();
+  }).catch(() => { carregou = true; desenhar(); $('aviso').textContent = 'Não consegui ler os templates; o pedido segue com "O Claude escolhe".'; });
 
   b.onclick = async () => {
+    $('erro').textContent = '';
     b.disabled = true; t.disabled = true; travado = true; marcar();
-    const r = await fetch('/api/pedido', {method: 'POST', body: JSON.stringify({texto: t.value, template: escolhido || null})});
-    const p = await r.json();
-    if (!r.ok || !p.id) { // ex.: template apagado da pasta entre abrir a página e enviar
-      $('aviso').textContent = 'O pedido não foi aceito: ' + (p.erro || r.status);
-      b.disabled = false; t.disabled = false; travado = false; marcar(); return;
+    const destravar = (msg) => { b.disabled = false; t.disabled = false; travado = false; marcar(); $('erro').textContent = msg; };
+    try {
+      const r = await fetch('/api/pedido', {method: 'POST', body: JSON.stringify({texto: t.value, template: escolhido || null})});
+      const p = await r.json().catch(() => ({}));
+      if (!r.ok || !p.id) return destravar('O pedido não foi aceito: ' + (p.erro || `erro ${r.status}`)); // ex.: template apagado da pasta
+      id = p.id; mostrar(p); acompanhar();
+    } catch (e) {
+      destravar('Sem resposta do estúdio; confere se ele está no ar e tenta de novo.');
     }
-    id = p.id; mostrar(p); acompanhar();
   };
 
 // a janela do estúdio troca de página quando o Claude manda (sempre a mesma janela)
 (() => { let seq = null; const f = async () => { try { const j = await fetch('/api/janela?eu=1').then((r) => r.json()); if (seq === null) seq = j.seq; else if (j.seq !== seq) { seq = j.seq; if (j.url && j.url !== location.href) location.href = j.url; } } catch {} setTimeout(f, 1000); }; if (new URLSearchParams(location.search).get('ver') !== '1') f(); })();
   // se já houver um pedido em andamento, continua mostrando
   fetch('/api/pedido/ultimo').then((r) => r.json()).then((p) => {
-    if (p && !['pronto', 'editando'].includes(p.estado) && Date.now() - p.passos[0].t < 3600e3) { id = p.id; t.value = p.texto; t.disabled = true; b.disabled = true; escolhido = (p.template && p.template.nome) || ''; travado = true; marcar(); mostrar(p); acompanhar(); }
+    if (p && !['pronto', 'editando'].includes(p.estado) && Date.now() - p.passos[0].t < 3600e3) { id = p.id; t.value = p.texto; t.disabled = true; b.disabled = true; persistido = p.template || null; escolhido = (p.template && p.template.nome) || ''; travado = true; desenhar(); mostrar(p); acompanhar(); }
   }).catch(() => {});
 </script>
 </body>

@@ -19,20 +19,21 @@ const lerJSON = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const TEMPLATES = resolve(process.env.PRISMA_TEMPLATES || join(RAIZ, '..', 'templates'));
 const NOME_TEMPLATE = /^[a-z0-9-]{1,60}$/;
 const txt = (v, max = 400) => (typeof v === 'string' ? v.slice(0, max) : '');
+// Lido do disco a cada chamada de propósito: são poucos arquivos, o servidor é local, e template novo ou editado
+// aparece sem reiniciar o estúdio.
+function lerTemplate(n) {
+  if (!NOME_TEMPLATE.test(n) || !existsSync(join(TEMPLATES, n, 'template.json'))) return null;
+  try {
+    const t = lerJSON(join(TEMPLATES, n, 'template.json'));
+    const capas = [1, 2, 3, 4].filter((i) => existsSync(join(TEMPLATES, n, `capa-${i}.jpg`))).map((i) => `/api/template-capa/${n}?i=${i}`);
+    return {nome: n, titulo: txt(t.titulo, 80) || n, status: t.status === 'pronto' ? 'pronto' : 'receita',
+      resumo: txt(t.resumo), quando_usar: txt(t.quando_usar), duracao: txt(t.duracao, 40),
+      ordem: Number.isFinite(Number(t.ordem)) ? Number(t.ordem) : 99, capas};
+  } catch { return null; } // template.json quebrado não derruba a lista
+}
 function listarTemplates() {
   if (!existsSync(TEMPLATES)) return [];
-  return readdirSync(TEMPLATES)
-    .filter((n) => NOME_TEMPLATE.test(n) && existsSync(join(TEMPLATES, n, 'template.json')))
-    .map((n) => {
-      try {
-        const t = lerJSON(join(TEMPLATES, n, 'template.json'));
-        const capas = [1, 2, 3, 4].filter((i) => existsSync(join(TEMPLATES, n, `capa-${i}.jpg`))).map((i) => `/api/template-capa/${n}?i=${i}`);
-        return {nome: n, titulo: txt(t.titulo, 80) || n, status: t.status === 'pronto' ? 'pronto' : 'receita',
-          resumo: txt(t.resumo), quando_usar: txt(t.quando_usar), duracao: txt(t.duracao, 40),
-          ordem: Number.isFinite(Number(t.ordem)) ? Number(t.ordem) : 99, capas};
-      } catch { return null; } // template.json quebrado não derruba a lista
-    })
-    .filter(Boolean)
+  return readdirSync(TEMPLATES).map(lerTemplate).filter(Boolean)
     .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
 }
 
@@ -228,10 +229,10 @@ function api() {
             if (req.method === 'POST' && !nome) {
               const {texto, template} = JSON.parse((await corpo(req)).toString());
               if (typeof texto !== 'string' || !texto.trim()) return json(res, {erro: 'prompt vazio'}, 400);
-              // template escolhido na página: tem de existir na pasta de templates; vazio = o Claude escolhe
+              // template escolhido na página: ausente, null ou "" = o Claude escolhe; senão, nome que exista na pasta
               let tpl = null;
-              if (template) {
-                const t = listarTemplates().find((x) => x.nome === template);
+              if (template !== undefined && template !== null && template !== '') {
+                const t = typeof template === 'string' ? lerTemplate(template) : null;
                 if (!t) return json(res, {erro: 'template não existe'}, 400);
                 tpl = {nome: t.nome, titulo: t.titulo, status: t.status};
               }
