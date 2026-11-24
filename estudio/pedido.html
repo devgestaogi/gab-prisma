@@ -139,7 +139,7 @@
     $('templates').querySelectorAll('.tpl').forEach((e) => { e.onclick = () => { if (!travado) { escolhido = e.dataset.nome; marcar(); } }; });
     marcar();
   }
-  fetch('/api/templates').then((r) => r.json()).then((l) => {
+  fetch('/api/templates').then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then((l) => {
     lista = Array.isArray(l) ? l : [];
     carregou = true;
     // seleção livre que sumiu da pasta volta para "o Claude escolhe"; a de pedido já enviado fica
