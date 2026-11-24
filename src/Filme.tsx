@@ -3,6 +3,7 @@ import {AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile, use
 import {SORA} from './fonts';
 import {Interface, sonsDaInterface} from './Interface';
 import {Legenda, Etiqueta, Marcas, Marca, quadrosDasMarcas, camera, pulo, Tela, TelaCheia, sonsDaTela, inicioDaTela} from './Vivo';
+import {TEMPLATES} from './templates';
 
 export type Cena = {
   id: string; fala: string; personagem: string | null; texto: string | null;
@@ -31,7 +32,8 @@ export const palavrasDaCena = (dados: Dados, i: number, fps: number) => {
 export type Palavra = {p: string; ini: number; fim: number};
 export type Dados = {
   projeto: string;
-  roteiro: {formato: {largura: number; altura: number; fps: number}; cores: Record<string, string>; cenas: Cena[]; legenda?: boolean};
+  // template: nome do template de edição (DESIGN VIDEOS IA/templates); sem ele, estilo Prisma
+  roteiro: {template?: string; formato: {largura: number; altura: number; fps: number}; cores: Record<string, string>; cenas: Cena[]; legenda?: boolean; [k: string]: any};
   tempo: {duracao: number; cenas: {id: string; ini: number; fim: number}[]; palavras: Palavra[]};
   personagens: string[];
   semVoz?: boolean; // estúdio: voz ainda não entrou (tempo estimado)
@@ -50,6 +52,8 @@ const FOLEGO = new Set(['extintor']);
 export const Filme: React.FC<{projeto: string; dados: Dados | null}> = ({dados}) => {
   const {fps} = useVideoConfig();
   if (!dados) return null;
+  const T = dados.roteiro.template ? TEMPLATES[dados.roteiro.template] : undefined;
+  if (T) return <T dados={dados as any} />;
   const C = dados.roteiro.cores;
   return (
     <AbsoluteFill style={{background: C.fundoClaro, fontFamily: FONT}}>

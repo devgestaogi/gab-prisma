@@ -298,6 +298,15 @@ export class MotorAoVivo {
         await this.dorme(150);
         break;
       }
+      case 'campos': {
+        // campos próprios dos templates de edição (diorama, vetor, cartoon): entram na cena de uma vez
+        await this.garantirCena(ag, a.cena);
+        await this.mover(ag, 'palco');
+        await this.clicar(ag, 'palco');
+        C.mudarCena(a.cena, (c: any) => ({...c, ...(a.valor ?? {})}));
+        await this.dorme(150);
+        break;
+      }
       case 'legenda': {
         await this.mover(ag, 'camada-texto');
         await this.clicar(ag, 'camada-texto');

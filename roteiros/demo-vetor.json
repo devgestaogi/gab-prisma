@@ -1,0 +1,288 @@
+{
+  "projeto": "demo-vetor",
+  "marca": "gi",
+  "template": "vetor-chapado-contador",
+  "titulo_interno": "Demo vetor: 5 sinais de que tua empresa para sem ti",
+  "modo": "lista",
+  "estilo": "liso",
+  "titulo": [
+    "TUA EMPRESA PARA SEM TI?",
+    "CONFERE OS 5 SINAIS"
+  ],
+  "formato": {
+    "largura": 1080,
+    "altura": 1920,
+    "fps": 30
+  },
+  "cores": {
+    "destaque": "#EE7533",
+    "tinta": "#111111",
+    "fundoClaro": "#F6F3EF",
+    "fundoForte": "#EE7533"
+  },
+  "narracao": "trabalho/demo-vetor/narracao.aiff",
+  "cenas": [
+    {
+      "id": "gancho",
+      "fala": "Tua empresa para quando tu não está? Presta atenção nesses cinco sinais.",
+      "cenario": {
+        "tipo": "escritorio",
+        "noite": true
+      },
+      "personagens": [
+        {
+          "tipo": "dono",
+          "expressao": "preocupado",
+          "anima": "balanca",
+          "x": 340,
+          "entra": "pop"
+        }
+      ],
+      "objeto": {
+        "tipo": "celular",
+        "rotulo": "40",
+        "x": 770,
+        "y": 850,
+        "escala": 0.78,
+        "palavra": "tu"
+      },
+      "flash": {
+        "cor": "#EE7533"
+      },
+      "deriva": "zoom"
+    },
+    {
+      "id": "whats",
+      "fala": "Primeiro. Tudo passa pelo teu WhatsApp, até a dúvida mais boba.",
+      "cenario": {
+        "tipo": "casa-noite"
+      },
+      "selo": {
+        "numero": 1,
+        "texto": "TUDO PASSA PELO TEU WHATS"
+      },
+      "personagens": [
+        {
+          "tipo": "dono",
+          "expressao": "susto",
+          "anima": "balanca",
+          "x": 250,
+          "escala": 0.85,
+          "entra": "desliza-esq"
+        }
+      ],
+      "objeto": {
+        "tipo": "celular",
+        "rotulo": "40",
+        "x": 700,
+        "y": 830,
+        "escala": 1.0,
+        "palavra": "tudo"
+      },
+      "deriva": "pan"
+    },
+    {
+      "id": "agenda",
+      "fala": "Segundo. A tua agenda não tem um dia livre. As férias viram home office.",
+      "cenario": {
+        "tipo": "estrada"
+      },
+      "selo": {
+        "numero": 2,
+        "texto": "FÉRIAS VIRAM HOME OFFICE"
+      },
+      "personagens": [
+        {
+          "tipo": "dono",
+          "expressao": "preocupado",
+          "anima": "anda",
+          "x": 160,
+          "ate": 900,
+          "escala": 0.8,
+          "entra": "nenhuma"
+        }
+      ],
+      "objeto": {
+        "tipo": "agenda",
+        "x": 640,
+        "y": 650,
+        "escala": 0.7,
+        "palavra": "agenda"
+      },
+      "deriva": "zoom"
+    },
+    {
+      "id": "equipe",
+      "fala": "Terceiro. A equipe fica parada, esperando tu decidir.",
+      "cenario": {
+        "tipo": "loja",
+        "cores": {
+          "c": "#2FA89A"
+        }
+      },
+      "selo": {
+        "numero": 3,
+        "texto": "A EQUIPE ESPERA TU DECIDIR"
+      },
+      "personagens": [
+        {
+          "tipo": "funcionaria",
+          "expressao": "preocupado",
+          "anima": "balanca",
+          "x": 330,
+          "escala": 0.85,
+          "entra": "pop"
+        },
+        {
+          "tipo": "funcionario",
+          "expressao": "neutro",
+          "anima": "balanca",
+          "x": 930,
+          "escala": 0.85,
+          "espelho": true,
+          "entra": "desliza-dir"
+        }
+      ],
+      "objeto": {
+        "tipo": "porta",
+        "x": 640,
+        "y": 830,
+        "escala": 0.78,
+        "palavra": "parada"
+      },
+      "balao": {
+        "texto": "Espera o chefe decidir",
+        "de": 0,
+        "tipo": "pensamento",
+        "y": 700,
+        "palavra": "esperando"
+      },
+      "deriva": "pan",
+      "ancora": "tercero"
+    },
+    {
+      "id": "relogio",
+      "fala": "Quarto. Tu é o mais ocupado da empresa. O teu relógio corre, o da empresa quase não anda.",
+      "cenario": {
+        "tipo": "liso"
+      },
+      "selo": {
+        "numero": 4,
+        "texto": "TU É O MAIS OCUPADO"
+      },
+      "objeto": {
+        "tipo": "relogio-duplo",
+        "x": 540,
+        "y": 880,
+        "escala": 1.0,
+        "palavra": "relógio"
+      },
+      "contador": {
+        "de": 40,
+        "para": 72,
+        "sufixo": " h",
+        "cor": "laranja",
+        "icone": "relogio",
+        "palavra": "ocupado"
+      },
+      "impacto": {
+        "texto": "Sem folga",
+        "cor": "laranja",
+        "y": 570,
+        "palavra": "corre"
+      },
+      "deriva": "zoom"
+    },
+    {
+      "id": "preco",
+      "fala": "Quinto. Só tu sabe o preço. Sem ti, ninguém fecha a venda.",
+      "cenario": {
+        "tipo": "cidade-noite"
+      },
+      "selo": {
+        "numero": 5,
+        "texto": "SÓ TU SABE O PREÇO"
+      },
+      "personagens": [
+        {
+          "tipo": "dono",
+          "expressao": "bravo",
+          "anima": "aponta",
+          "x": 160,
+          "escala": 0.8,
+          "entra": "pop"
+        },
+        {
+          "tipo": "cliente",
+          "expressao": "neutro",
+          "anima": "balanca",
+          "x": 920,
+          "escala": 0.8,
+          "espelho": true,
+          "entra": "desliza-dir"
+        }
+      ],
+      "objeto": {
+        "tipo": "cofre",
+        "x": 540,
+        "y": 800,
+        "escala": 0.82,
+        "palavra": "preço"
+      },
+      "balao": {
+        "texto": "Quanto fica?",
+        "de": 1,
+        "tipo": "fala",
+        "palavra": "ninguém"
+      },
+      "hud": {
+        "tipo": "mira",
+        "x": 475,
+        "y": 898,
+        "palavra": "sem"
+      },
+      "deriva": "pan",
+      "ancora": "quinto"
+    },
+    {
+      "id": "objetivo",
+      "fala": "O objetivo é outro: uma empresa que anda sem ti. Toque em Saiba mais.",
+      "cenario": {
+        "tipo": "rua"
+      },
+      "titulo": false,
+      "selo": {
+        "numero": "★",
+        "texto": "O OBJETIVO"
+      },
+      "personagens": [
+        {
+          "tipo": "funcionaria",
+          "expressao": "feliz",
+          "anima": "aceno",
+          "x": 220,
+          "entra": "pop"
+        },
+        {
+          "tipo": "cliente",
+          "expressao": "feliz",
+          "anima": "balanca",
+          "x": 400,
+          "escala": 0.9,
+          "entra": "pop"
+        },
+        {
+          "tipo": "dono",
+          "expressao": "feliz",
+          "anima": "anda",
+          "x": 620,
+          "ate": 1280,
+          "escala": 0.95,
+          "entra": "nenhuma"
+        }
+      ],
+      "cta": "Toque em Saiba mais",
+      "deriva": "zoom"
+    }
+  ]
+}

@@ -268,7 +268,8 @@ export const App: React.FC = () => {
   const cursoresAtivos = Object.values(cursores).filter((c) => c.visivel).length;
   const exp = agentes.agentes.exportar;
   const gerando = (n: string) => agentes.agentes[`personagem:${n}`]?.estado === 'trabalhando';
-  const todosPers = [...new Set([...Object.keys(R.personagens), ...proj.personagens])];
+  // roteiro de template de edição (diorama, vetor, cartoon) não tem personagens desenhados pelo Codex nem cores do Prisma
+  const todosPers = [...new Set([...Object.keys(R.personagens ?? {}), ...proj.personagens])];
 
   return (
     <div className="estudio">
@@ -415,13 +416,13 @@ export const App: React.FC = () => {
           </div>
           <div className="tit" style={{marginTop: 18}}>Cores do projeto</div>
           <div className="cores">
-            {Object.entries<string>(R.cores).map(([k, v]) => (
+            {Object.entries<string>(R.cores ?? {}).map(([k, v]) => (
               <label key={k} data-alvo={`cor-${k}`} className="cor" style={{background: v}} title={`${k}: ${v}`}>
-                <input type="color" value={v} onChange={(e) => mudarRoteiro((r) => { r.cores[k] = e.target.value; return r; })} />
+                <input type="color" value={v} onChange={(e) => mudarRoteiro((r) => { r.cores = {...(r.cores ?? {}), [k]: e.target.value}; return r; })} />
               </label>
             ))}
           </div>
-          <div className="cores-leg">destaque {R.cores.destaque} · tinta {R.cores.tinta}</div>
+          <div className="cores-leg">destaque {R.cores?.destaque ?? 'do template'} · tinta {R.cores?.tinta ?? 'do template'}</div>
           <div className="tit" style={{marginTop: 18}}>Agentes <span>{trabalhando.length + cursoresAtivos} trabalhando</span></div>
           <Agentes ag={agentes.agentes} vozOk={!vozDesatualizada} cursores={cursores} />
         </aside>

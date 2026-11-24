@@ -16,3 +16,6 @@ ferramentas/recortar
 ferramentas/clique
 *.log
 .env*
+
+# mídia das demonstrações dos templates (voz de teste, regerável pelo alinhar.mjs)
+public/demo-*/

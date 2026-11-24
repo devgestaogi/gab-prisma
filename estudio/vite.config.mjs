@@ -26,7 +26,8 @@ function lerTemplate(n) {
   try {
     const t = lerJSON(join(TEMPLATES, n, 'template.json'));
     const capas = [1, 2, 3, 4].filter((i) => existsSync(join(TEMPLATES, n, `capa-${i}.jpg`))).map((i) => `/api/template-capa/${n}?i=${i}`);
-    return {nome: n, titulo: txt(t.titulo, 80) || n, status: t.status === 'pronto' ? 'pronto' : 'receita',
+    // status: pronto (vídeos aprovados), prototipo (o motor já faz, em teste), receita (só descrito)
+    return {nome: n, titulo: txt(t.titulo, 80) || n, status: ['pronto', 'prototipo'].includes(t.status) ? t.status : 'receita',
       resumo: txt(t.resumo), quando_usar: txt(t.quando_usar), duracao: txt(t.duracao, 40),
       ordem: Number.isFinite(Number(t.ordem)) ? Number(t.ordem) : 99, capas};
   } catch { return null; } // template.json quebrado não derruba a lista
@@ -227,7 +228,7 @@ function api() {
           if (rota === 'pedido') {
             const dir = join(RAIZ, 'trabalho', 'pedidos'); mkdirSync(dir, {recursive: true});
             if (req.method === 'POST' && !nome) {
-              const {texto, template} = JSON.parse((await corpo(req)).toString());
+              const {texto, template, marca} = JSON.parse((await corpo(req)).toString());
               if (typeof texto !== 'string' || !texto.trim()) return json(res, {erro: 'prompt vazio'}, 400);
               // template escolhido na página: ausente, null ou "" = o Claude escolhe; senão, nome que exista na pasta
               let tpl = null;
@@ -236,10 +237,13 @@ function api() {
                 if (!t) return json(res, {erro: 'template não existe'}, 400);
                 tpl = {nome: t.nome, titulo: t.titulo, status: t.status};
               }
+              // marca: "gi" = vídeo da Gestão de Impacto (logo, laranja, regras da casa); "livre" = conteúdo próprio
+              if (marca !== undefined && marca !== null && marca !== 'gi' && marca !== 'livre') return json(res, {erro: 'marca inválida'}, 400);
+              const mk = marca === 'gi' ? 'gi' : 'livre';
               const id = new Date().toLocaleString('sv-SE').replace(/[^0-9]/g, '').slice(0, 14);
-              const p = {id, texto: texto.trim(), template: tpl, estado: 'novo', passos: [{t: Date.now(), msg: 'prompt recebido' + (tpl ? ` · template ${tpl.titulo}` : '')}], projeto: null};
+              const p = {id, texto: texto.trim(), template: tpl, marca: mk, estado: 'novo', passos: [{t: Date.now(), msg: 'prompt recebido' + (tpl ? ` · template ${tpl.titulo}` : '') + (mk === 'gi' ? ' · Gestão de Impacto' : ' · conteúdo próprio')}], projeto: null};
               writeFileSync(join(dir, `${id}.json`), JSON.stringify(p, null, 2));
-              log('roteiro', 'novo pedido de vídeo' + (tpl ? ` [${tpl.nome}]` : '') + ': ' + texto.trim().slice(0, 80));
+              log('roteiro', 'novo pedido de vídeo' + (tpl ? ` [${tpl.nome}]` : '') + (mk === 'gi' ? ' [GI]' : '') + ': ' + texto.trim().slice(0, 80));
               return json(res, p);
             }
             if (req.method === 'POST' && nome) {

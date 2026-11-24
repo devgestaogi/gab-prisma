@@ -93,6 +93,10 @@ plano.cenas.forEach((c, i) => {
   for (const campo of ['x', 'y', 'escala', 'rotacao', 'opacidade']) if (typeof c.ajuste?.[campo] === 'number') j({agente: 'movimento', tipo: 'slider', campo, valor: c.ajuste[campo]});
   for (const m of c.marcas ?? []) j({agente: 'graficos', tipo: 'marca', valor: m});
   if (c.tela) j({agente: 'design', tipo: 'tela', valor: c.tela});
+  // campos dos templates de edição (roteiro.template): tudo que o Prisma não monta campo a campo
+  const PRISMA = new Set(['id', 'fala', 'fundo', 'ancora', 'texto', 'interface', 'personagem', 'personagem2', 'ajuste', 'marcas', 'tela']);
+  const proprios = Object.fromEntries(Object.entries(c).filter(([k]) => !PRISMA.has(k)));
+  if (Object.keys(proprios).length) j({agente: 'design', tipo: 'campos', valor: proprios});
   A.push({tipo: 'sincronizar'});
 });
 A.push({tipo: 'sincronizar'});
@@ -149,7 +153,14 @@ const CAMPOS = ['fala', 'ancora', 'personagem', 'personagem2', 'texto', 'interfa
 const feito = ler(roteiroArq);
 const difs = [];
 if ((feito.cenas?.length ?? 0) !== plano.cenas.length) difs.push(`nº de cenas: ${feito.cenas?.length ?? 0} em vez de ${plano.cenas.length}`);
-plano.cenas.forEach((c, i) => { const f = feito.cenas?.[i] ?? {}; for (const k of CAMPOS) if (estavel(c[k]) !== estavel(f[k])) difs.push(`cena ${i + 1} · ${k}`); });
+// confere os campos do Prisma e todos os outros que a cena tiver (templates de edição têm campos próprios)
+plano.cenas.forEach((c, i) => {
+  const f = feito.cenas?.[i] ?? {};
+  const chaves = new Set([...CAMPOS, ...Object.keys(c), ...Object.keys(f)]);
+  chaves.delete('id');
+  for (const k of chaves) if (estavel(c[k]) !== estavel(f[k])) difs.push(`cena ${i + 1} · ${k}`);
+});
+if (estavel(plano.template) !== estavel(feito.template)) difs.push('template do roteiro');
 if (difs.length) {
   console.log(`conferência: ${difs.length} diferença(s) do plano → corrigindo\n  ` + difs.join('\n  '));
   writeFileSync(roteiroArq, JSON.stringify({...plano, narracao: plano.narracao}, null, 2));

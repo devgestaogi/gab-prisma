@@ -53,6 +53,13 @@
   .selo.livre { background: rgba(143,124,247,.14); color: var(--roxo); }
   .aviso { min-height: 20px; margin: 0 0 18px; font-size: 13px; color: var(--laranja); }
   .vazio { color: var(--suave); font-size: 13px; }
+  .marca { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; padding: 12px 16px; background: var(--painel); border: 1px solid var(--linha); border-radius: 14px; cursor: pointer; user-select: none; }
+  .marca.travada { cursor: default; opacity: .8; }
+  .chave { position: relative; width: 46px; height: 26px; flex: none; border-radius: 999px; background: #2e323c; transition: background .15s; }
+  .chave::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #e8e8ec; transition: transform .15s; }
+  .marca[aria-checked="true"] .chave { background: var(--laranja); }
+  .marca[aria-checked="true"] .chave::after { transform: translateX(20px); }
+  .marca b { font-size: 14px; } .marca small { display: block; color: var(--suave); font-size: 12px; }
   .erro { min-height: 20px; margin: 10px 0 0; font-size: 13px; color: #ff6b6b; }
 </style>
 </head>
@@ -68,6 +75,8 @@
     <div class="rotulo">Template de edição</div>
     <div class="templates" id="templates" role="radiogroup" aria-label="Template de edição"><div class="vazio">carregando os templates…</div></div>
     <p class="aviso" id="aviso"></p>
+    <div class="marca" id="marca" role="switch" aria-checked="false" tabindex="0"><span class="chave"></span>
+      <span><b>Para a Gestão de Impacto</b><small id="marcaTexto">Desligado: conteúdo próprio, com a identidade do template e sem logo do GI.</small></span></div>
     <div class="rotulo">Prompt do roteiro</div>
     <textarea id="prompt" placeholder="Ex.: vídeo de 40 s sobre vendas com o Ítalo, usando a notícia das vendas do GTA 6 e o pilar de vendas da Gestão de Impacto. Termina chamando para a imersão."></textarea>
     <div class="linha"><span id="conta">0 caracteres</span><button id="enviar" disabled>Criar vídeo</button></div>
@@ -111,10 +120,10 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const cartao = (x) => `<button type="button" class="tpl" role="radio" data-nome="${esc(x.nome)}" title="${esc(x.resumo)}">
       <div class="capas">${(x.capas || []).map((c) => `<img src="${esc(c)}" alt="" loading="lazy">`).join('')}</div>
-      <span class="selo ${x.status === 'pronto' ? 'pronto' : 'receita'}">${x.status === 'pronto' ? 'pronto no motor' : 'receita'}</span>
+      <span class="selo ${x.status === 'receita' ? 'receita' : 'pronto'}">${x.status === 'pronto' ? 'pronto no motor' : x.status === 'prototipo' ? 'no motor · protótipo' : 'receita'}</span>
       <b>${esc(x.titulo)}</b><small>${esc(x.quando_usar)}</small><small>${esc(x.duracao)}</small></button>`;
   const livre = `<button type="button" class="tpl" role="radio" data-nome=""><div class="capas livre">✦</div>
-      <span class="selo livre">automático</span><b>O Claude escolhe</b><small>Pelo assunto, entre os templates prontos.</small></button>`;
+      <span class="selo livre">automático</span><b>O Claude escolhe</b><small>Pelo assunto, entre os templates que o motor já faz.</small></button>`;
   const indisponivel = (x) => `<button type="button" class="tpl" role="radio" data-nome="${esc(x.nome)}"><div class="capas livre">?</div>
       <span class="selo ${falhou ? 'livre' : 'receita'}">${falhou ? 'deste pedido' : 'fora da pasta'}</span><b>${esc(x.titulo || x.nome)}</b>
       <small>${falhou ? 'Template gravado neste pedido.' : 'Template gravado neste pedido; não está mais na pasta de templates.'}</small></button>`;
@@ -127,7 +136,7 @@
     $('aviso').textContent = falhou
       ? (escolhido ? 'Não consegui ler a lista de templates agora; o pedido segue com o template escolhido nele.'
                    : 'Não consegui ler a lista de templates; o pedido segue com "O Claude escolhe".')
-      : x && x.status !== 'pronto'
+      : x && x.status === 'receita'
         ? 'Este template ainda é receita: o motor não faz esse estilo. O Claude avisa antes de começar e propõe construir o estilo ou usar o pronto mais parecido.'
         : '';
   }
@@ -147,12 +156,25 @@
     desenhar();
   }).catch(() => { carregou = true; falhou = true; desenhar(); });
 
+  // marca: gi = Gestão de Impacto (logo, laranja, regras da casa); livre = conteúdo próprio (padrão)
+  let marca = 'livre';
+  function pintarMarca() {
+    const gi = marca === 'gi';
+    $('marca').setAttribute('aria-checked', String(gi));
+    $('marca').classList.toggle('travada', travado);
+    $('marcaTexto').textContent = gi ? 'Ligado: logo do GI, laranja da marca e as regras de copy da casa.' : 'Desligado: conteúdo próprio, com a identidade do template e sem logo do GI.';
+  }
+  const virarMarca = () => { if (!travado) { marca = marca === 'gi' ? 'livre' : 'gi'; pintarMarca(); } };
+  $('marca').onclick = virarMarca;
+  $('marca').onkeydown = (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); virarMarca(); } };
+  pintarMarca();
+
   b.onclick = async () => {
     $('erro').textContent = '';
-    b.disabled = true; t.disabled = true; travado = true; marcar();
-    const destravar = (msg) => { b.disabled = false; t.disabled = false; travado = false; marcar(); $('erro').textContent = msg; };
+    b.disabled = true; t.disabled = true; travado = true; marcar(); pintarMarca();
+    const destravar = (msg) => { b.disabled = false; t.disabled = false; travado = false; marcar(); pintarMarca(); $('erro').textContent = msg; };
     try {
-      const r = await fetch('/api/pedido', {method: 'POST', body: JSON.stringify({texto: t.value, template: escolhido || null})});
+      const r = await fetch('/api/pedido', {method: 'POST', body: JSON.stringify({texto: t.value, template: escolhido || null, marca})});
       const p = await r.json().catch(() => ({}));
       if (!r.ok || !p.id) return destravar('O pedido não foi aceito: ' + (p.erro || `erro ${r.status}`)); // ex.: template apagado da pasta
       id = p.id; mostrar(p); acompanhar();
@@ -165,7 +187,7 @@
 (() => { let seq = null; const f = async () => { try { const j = await fetch('/api/janela?eu=1').then((r) => r.json()); if (seq === null) seq = j.seq; else if (j.seq !== seq) { seq = j.seq; if (j.url && j.url !== location.href) location.href = j.url; } } catch {} setTimeout(f, 1000); }; if (new URLSearchParams(location.search).get('ver') !== '1') f(); })();
   // se já houver um pedido em andamento, continua mostrando
   fetch('/api/pedido/ultimo').then((r) => r.json()).then((p) => {
-    if (p && !['pronto', 'editando'].includes(p.estado) && Date.now() - p.passos[0].t < 3600e3) { id = p.id; t.value = p.texto; t.disabled = true; b.disabled = true; persistido = p.template || null; escolhido = (p.template && p.template.nome) || ''; travado = true; desenhar(); mostrar(p); acompanhar(); }
+    if (p && !['pronto', 'editando'].includes(p.estado) && Date.now() - p.passos[0].t < 3600e3) { id = p.id; t.value = p.texto; t.disabled = true; b.disabled = true; persistido = p.template || null; escolhido = (p.template && p.template.nome) || ''; travado = true; marca = p.marca === 'gi' ? 'gi' : 'livre'; pintarMarca(); desenhar(); mostrar(p); acompanhar(); }
   }).catch(() => {});
 </script>
 </body>
