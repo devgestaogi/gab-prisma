@@ -52,6 +52,9 @@
           0.5,
           0.45
         ]
+      },
+      "layout": {
+        "legenda": "alto"
       }
     },
     {
@@ -64,6 +67,9 @@
           0.5,
           0.45
         ]
+      },
+      "layout": {
+        "legenda": "alto"
       }
     },
     {
@@ -96,6 +102,10 @@
           0.65,
           0.4
         ]
+      },
+      "layout": {
+        "legenda": "alto",
+        "cartao": "baixo"
       }
     },
     {
@@ -195,6 +205,9 @@
       "plano": {
         "imagem": "08-telhado.png",
         "movimento": "orbita"
+      },
+      "layout": {
+        "cartao": "alto"
       }
     },
     {

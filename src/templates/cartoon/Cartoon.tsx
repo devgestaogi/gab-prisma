@@ -3,19 +3,21 @@
 // objeto-prova e transição por obstáculo. Tudo determinístico por quadro. Veja LEIAME.md na pasta.
 import React from 'react';
 import {AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {Cenas, EstiloLegenda, FONTE_SORA, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, cenasValidas, destaqueDe, faixaUtil, imagemDoProjeto, numero, objeto, quadroDaPalavraT, texto, umDe} from '../comum';
+import {Cenas, EstiloLegenda, FONTE_SORA, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, cenasValidas, destaqueDe, faixaUtil, imagemDoProjeto, numero, objeto, palavrasDaCena, quadroDaPalavraT, texto, umDe} from '../comum';
 import {BASES, Cam, Cenario3D, CenarioProps, CenarioTipo, Hora, V3} from './set3d';
 import {Luz, Personagem, PersonagemRot, normPersonagens} from './personagens';
 import {Insert, InsertView, normInsert, quadroDeEntrada} from './inserts';
 import {graoDataUrl} from './texturas';
 import {clamp, lerp, senoide, suave} from './util';
+import {AcabamentoPlano, LEGENDA_Y, Layout, Plano, PlanoImagem, Segmento, SomF, normLayout, normPlano, posInsert, segmentosDePlanos, sonsDoInsert} from './planos';
 
 type CameraRot = {tipo: 'push' | 'dolly' | 'plongee' | 'pan'; intensidade: number; pos?: V3; alvo?: V3};
-type ObjetoObstaculo = 'pessoa' | 'porta' | 'celular';
+type ObjetoObstaculo = 'pessoa' | 'porta' | 'celular' | 'parede';
 type CenaRot = {
   id: string; fala: string;
   cenario: {tipo: CenarioTipo; hora: Hora; luz: 'quente' | 'fria'; quadro: boolean; placa?: string; imagem: string | null};
   camera: CameraRot; foco: number; personagens: PersonagemRot[]; insert?: Insert; transicao: ObjetoObstaculo | null;
+  plano: Plano | null; layout: Layout;
 };
 
 // ── normalização: a cena chega de agente ou de montagem ao vivo (pode faltar campo ou vir com tipo errado) ─────────
@@ -24,8 +26,21 @@ const v3 = (v: unknown): V3 | undefined => (Array.isArray(v) && v.length === 3 &
 export const normTransicao = (v: unknown): ObjetoObstaculo | null => {
   if (v === 'obstaculo') return 'porta';
   const o = objeto(v);
-  if (o.tipo === 'obstaculo') return umDe(o.objeto, ['pessoa', 'porta', 'celular'] as const, 'porta');
+  if (o.tipo === 'obstaculo') return umDe(o.objeto, ['pessoa', 'porta', 'celular', 'parede'] as const, 'porta');
   return null;
+};
+// Entre planos de imagem o obstáculo é o padrão ("corte" faz corte seco): borda de parede em primeiro plano.
+// Mesma imagem em cenas seguidas não troca de plano, então o padrão aí é não ter obstáculo. Sem plano em nenhuma das
+// duas pontas, vale a regra antiga (só obstáculo declarado).
+export const transicaoDaCena = (cena: any, anterior: any, projeto: string): ObjetoObstaculo | null => {
+  const plano = normPlano(objeto(cena).plano, projeto);
+  const antes = anterior ? normPlano(objeto(anterior).plano, projeto) : null;
+  if (!plano && !antes) return normTransicao(objeto(cena).transicao);
+  const tr = objeto(cena).transicao;
+  if (tr === 'corte' || objeto(tr).tipo === 'corte') return null;
+  if (tr === 'obstaculo') return 'parede';
+  if (objeto(tr).tipo === 'obstaculo') return umDe(objeto(tr).objeto, ['pessoa', 'porta', 'celular', 'parede'] as const, 'parede');
+  return plano && antes && plano.src === antes.src ? null : 'parede';
 };
 const normCena = (c: unknown, projeto: string): CenaRot => {
   const o = objeto(c);
@@ -48,8 +63,14 @@ const normCena = (c: unknown, projeto: string): CenaRot => {
     personagens: normPersonagens(o.personagens),
     insert: normInsert(o.insert),
     transicao: normTransicao(o.transicao),
+    plano: normPlano(o.plano, projeto),
+    layout: normLayout(o.layout),
   };
 };
+
+// sons de entrada da cena no modo planos: um por entrada, sem dois no mesmo quadro (quadros relativos à cena)
+const sonsDaCena = (cena: CenaRot, palavras: InfoCena['palavras']): SomF[] =>
+  cena.plano && cena.insert ? sonsDoInsert(cena.insert, quadroDeEntrada(cena.insert, palavras)) : [];
 
 const LEGENDA: EstiloLegenda = {fonte: FONTE_SORA, peso: 700, tamanho: 64, cor: '#FFFFFF', destaque: '#FFFFFF', modo: 'cor', contorno: '#000000', centroY: 1000, porBloco: 3};
 
@@ -130,7 +151,7 @@ const PrimeiroPlano: React.FC<{tipo: CenarioTipo; dx: number; f: number}> = ({ti
 };
 
 // ── uma cena ────────────────────────────────────────────────────────────────────────────────────────────────
-const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: number; H: number; cor: string}> = ({cena: cenaBruta, info, projeto, W, H, cor}) => {
+const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: number; H: number; cor: string; seg?: Segmento}> = ({cena: cenaBruta, info, projeto, W, H, cor, seg}) => {
   const cena = normCena(cenaBruta, projeto);
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
@@ -150,7 +171,32 @@ const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: 
     const e = typeof p.entra === 'object' ? p.entra : undefined;
     return e?.f ?? quadroDaPalavraT(info.palavras, e?.palavra, 6 + i * 7);
   };
-  const lg = LEGENDA;
+  const fAbs = Math.round(info.ini * fps) + f; // quadro absoluto: o segmento de plano continua entre cenas
+  const lay = cena.layout;
+  const legY = LEGENDA_Y[lay.legenda];
+  const lg = lay.legendaExplicita ? {...LEGENDA, centroY: legY} : LEGENDA;
+  // posição do insert: no modo planos sempre encaixada na faixa (cedendo à legenda); no modo antigo só se o roteiro pediu
+  const pi = ins && (cena.plano || lay.insertExplicito) ? posInsert(ins, lay.insert, lg.centroY) : null;
+  const insertView = ins && (
+    <div style={{position: 'absolute', inset: 0, transformOrigin: pi ? `540px ${pi.cy}px` : undefined, transform: pi ? `translateY(${pi.dy.toFixed(1)}px) scale(${pi.s.toFixed(3)})` : undefined}}>
+      <InsertView ins={ins} f={f} fps={fps} palavras={info.palavras} cor={cor} />
+    </div>
+  );
+  if (cena.plano) {
+    // modo planos: a imagem gerada do assunto no lugar do set 3D e dos personagens; câmera lenta por cima
+    return (
+      <AbsoluteFill style={{background: '#050608', overflow: 'hidden'}}>
+        <PlanoImagem plano={seg?.plano ?? cena.plano} t={seg ? clamp((fAbs - seg.iniF) / Math.max(1, seg.fimF - seg.iniF - 1)) : t} f={seg ? fAbs : f} />
+        {ins && <div style={{position: 'absolute', inset: 0, background: 'rgba(3,5,14,.22)', opacity: suave((f - entraIns) / 10)}} />}
+        <AcabamentoPlano legendaY={lg.centroY} />
+        <div style={{position: 'absolute', inset: 0, backgroundImage: `url(${graoDataUrl()})`, backgroundSize: '256px', backgroundPosition: `${(f * 37) % 256}px ${(f * 91) % 256}px`, opacity: 0.05, mixBlendMode: 'overlay'}} />
+        {insertView}
+        <style>{'.lgc>div>span{margin:0 0.1em}'}</style>
+        <div className="lgc"><LegendaKaraoke fala={cena.fala} palavras={info.palavras} estilo={lg} /></div>
+        {sonsDaCena(cena, info.palavras).map((s, i) => <Som key={i} som={s.som} f={s.f} vol={s.vol} />)}
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill style={{background: '#050608', overflow: 'hidden'}}>
       {/* fundo: 3D (ou imagem gerada) desfocado = profundidade de campo rasa */}
@@ -175,7 +221,7 @@ const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: 
       {/* vinheta e grão */}
       <div style={{position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 78% 62% at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,.62) 100%)'}} />
       <div style={{position: 'absolute', inset: 0, backgroundImage: `url(${graoDataUrl()})`, backgroundSize: '256px', backgroundPosition: `${(f * 37) % 256}px ${(f * 91) % 256}px`, opacity: 0.06, mixBlendMode: 'overlay'}} />
-      {ins && <InsertView ins={ins} f={f} fps={fps} palavras={info.palavras} cor={cor} />}
+      {insertView}
       <style>{'.lgc>div>span{margin:0 0.1em}'}</style>
       <div className="lgc"><LegendaKaraoke fala={cena.fala} palavras={info.palavras} estilo={lg} /></div>
       {/* sons da cena */}
@@ -202,6 +248,12 @@ const Obstaculo: React.FC<{b: number; objeto: ObjetoObstaculo; sentido: 1 | -1; 
         <div style={{position: 'absolute', inset: 0, background: 'repeating-linear-gradient(90deg,#2a1c12 0 340px,#1b120c 340px 346px), linear-gradient(180deg,#3a2718,#160f0a)', backgroundBlendMode: 'multiply'}}>
           <div style={{position: 'absolute', top: 0, bottom: 0, [borda]: 0, width: 50, background: 'linear-gradient(90deg,rgba(255,200,130,.65),rgba(0,0,0,0))', transform: sentido === 1 ? undefined : 'scaleX(-1)'}} />
           <div style={{position: 'absolute', left: 820, top: 1000, width: 60, height: 150, borderRadius: 20, background: '#c9a463', border: '6px solid #0c0c10'}} />
+        </div>
+      )}
+      {objeto === 'parede' && (
+        <div style={{position: 'absolute', inset: 0, background: 'linear-gradient(180deg,#0d0f16 0%,#05060a 55%,#0b0c12 100%)', filter: 'blur(3px)'}}>
+          <div style={{position: 'absolute', top: 0, bottom: 0, [borda]: 0, width: 90, background: 'linear-gradient(90deg,rgba(255,196,130,.55),rgba(0,0,0,0))', transform: sentido === 1 ? undefined : 'scaleX(-1)'}} />
+          <div style={{position: 'absolute', top: 0, bottom: 0, left: L * 0.62, width: 26, background: 'rgba(255,255,255,.05)'}} />
         </div>
       )}
       {objeto === 'pessoa' && (
@@ -231,23 +283,31 @@ export const Cartoon: React.FC<PropsTemplate> = ({dados}) => {
   const semCenas = validas.length === 0;
   const fronteiras = validas
     .map(({i, cena, ini}) => {
-      const objeto = i === 0 ? null : normTransicao(cena.transicao);
+      const objeto = i === 0 ? null : transicaoDaCena(cena, dados.roteiro.cenas[i - 1], dados.projeto);
       return objeto ? {b: Math.round(ini * fps), objeto, sentido: (i % 2 ? 1 : -1) as 1 | -1} : null;
     })
     .filter(Boolean) as {b: number; objeto: ObjetoObstaculo; sentido: 1 | -1}[];
+  // modo planos: quadros (absolutos) dos sons de entrada das cenas; o whoosh do obstáculo se afasta de qualquer um deles
+  const ocupados = validas.flatMap(({i, ini}) => sonsDaCena(normCena(dados.roteiro.cenas[i], dados.projeto), palavrasDaCena(dados, i, fps)).map((s) => Math.round(ini * fps) + s.f));
+  const quadroWhoosh = (b: number) => {
+    let w = b - 4;
+    while (ocupados.some((x) => Math.abs(x - w) < 3)) w -= 3;
+    return w;
+  };
   // cor de destaque do objeto-prova: regra comum da marca (gi sem cores = laranja; livre = âmbar das referências)
   const cor = destaqueDe(dados, '#F2A93B');
+  const segs = segmentosDePlanos(dados, fps);
   const logoOp = suave((frame - (total - 3 * fps)) / 12);
   return (
     <AbsoluteFill style={{background: '#000', fontFamily: FONTE_SORA}}>
       <Fontes />
       {/* palco vazio (montagem ao vivo no começo, ou cenas ainda sem tempo): um set padrão sem personagens */}
       {semCenas && <CenaCartoon cena={{}} info={{i: 0, dur: Math.max(1, total), ini: 0, palavras: [], primeira: true, ultima: true}} projeto={dados.projeto} W={width} H={height} cor={cor} />}
-      <Cenas dados={dados} render={(c, info) => <CenaCartoon cena={c} info={info} projeto={dados.projeto} W={width} H={height} cor={cor} />} />
+      <Cenas dados={dados} render={(c, info) => <CenaCartoon cena={c} info={info} projeto={dados.projeto} W={width} H={height} cor={cor} seg={segs.get(info.i)} />} />
       {fronteiras.map((o) => (
         <React.Fragment key={o.b}>
           <Obstaculo b={o.b} objeto={o.objeto} sentido={o.sentido} W={width} H={height} />
-          <Som som="whoosh" f={o.b - 4} vol={0.5} />
+          <Som som="whoosh" f={quadroWhoosh(o.b)} vol={0.4} />
         </React.Fragment>
       ))}
       {dados.roteiro.marca === 'gi' && logoOp > 0 && <LogoGI altura={56} direita={Math.round(width * 0.06)} baixo={height - fu.base + 24} opacidade={logoOp} />}

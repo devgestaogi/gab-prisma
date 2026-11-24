@@ -5,12 +5,18 @@ import {cenasValidas, lista, numero, objeto, texto, umDe} from '../comum';
 import type {DadosT} from '../comum';
 
 export type Estacao = {id: string; rotulo: string; palavra?: string};
-export type HudD = {valor: number; de?: number; rotulo: string; icone?: 'pessoas' | 'pedido' | 'dinheiro' | 'relogio'; prefixo?: string; sufixo?: string};
+export const ICONES_HUD = ['pessoas', 'pedido', 'dinheiro', 'relogio', 'estrela', 'carro', 'lista', 'alvo', 'alerta', 'camera'] as const;
+export type IconeHud = (typeof ICONES_HUD)[number];
+export type HudD = {valor: number; de?: number; rotulo: string; icone?: IconeHud; prefixo?: string; sufixo?: string};
 export type LinhaD = {texto: string; estado?: 'ok' | 'erro' | 'neutro'; etiqueta?: string; palavra?: string};
 export type CartaoD = {titulo: string; linhas: LinhaD[]};
 export const MOVIMENTOS = ['avanco', 'lateral', 'sobe', 'orbita'] as const;
 export type Movimento = (typeof MOVIMENTOS)[number];
 export type PlanoD = {imagem: string; movimento: Movimento; foco: [number, number]};
+// posição vertical por cena (em 1080x1920): legenda (centro 600, 900, 1130) e cartão de vidro (topo 420, 640, 860)
+export const FAIXAS = ['alto', 'meio', 'baixo'] as const;
+export type Faixa = (typeof FAIXAS)[number];
+export type LayoutD = {legenda?: Faixa; cartao?: Faixa};
 export type CenaDio = {
   id: string;
   fala: string;
@@ -28,6 +34,7 @@ export type CenaDio = {
   carimbo?: string;
   // modo imagem: plano gerado do assunto (public/<projeto>/planos/<imagem>) com a câmera animada por cima
   plano?: PlanoD;
+  layout?: LayoutD;
   // palavra da fala que dispara cada elemento (senão entra alguns quadros depois do início da cena)
   quando?: {hud?: string; alerta?: string; correcao?: string; cta?: string; cartao?: string; carimbo?: string};
 };
@@ -45,7 +52,6 @@ export const uEstacao = (k: number) => Z_SPAWN + k * ESPACO; // distância andad
 
 // ── normalização do roteiro ──────────────────────────────────────────────────────────────────────────────
 const opcional = (v: unknown): string | undefined => { const s = texto(v, ''); return s ? s : undefined; };
-const ICONES = ['pessoas', 'pedido', 'dinheiro', 'relogio'] as const;
 const VISOES = ['geral', 'perto', 'cima'] as const;
 const ESTADOS = ['ok', 'erro', 'neutro'] as const;
 
@@ -62,7 +68,7 @@ const normHud = (v: unknown): HudD | undefined => {
     valor: o.valor,
     de: typeof o.de === 'number' && Number.isFinite(o.de) ? o.de : undefined,
     rotulo: texto(o.rotulo, ''),
-    icone: ICONES.includes(o.icone) ? o.icone : undefined,
+    icone: ICONES_HUD.includes(o.icone) ? o.icone : undefined,
     prefixo: opcional(o.prefixo),
     sufixo: opcional(o.sufixo),
   };
@@ -76,6 +82,13 @@ const normCartao = (v: unknown): CartaoD | undefined => {
     return {texto: texto(x.texto, ''), estado: ESTADOS.includes(x.estado) ? x.estado : undefined, etiqueta: opcional(x.etiqueta), palavra: opcional(x.palavra)};
   });
   return titulo || linhas.length ? {titulo, linhas} : undefined;
+};
+
+const normLayout = (v: unknown): LayoutD | undefined => {
+  const o = objeto(v);
+  const f = (x: unknown): Faixa | undefined => (FAIXAS.includes(x as Faixa) ? (x as Faixa) : undefined);
+  const l = {legenda: f(o.legenda), cartao: f(o.cartao)};
+  return l.legenda || l.cartao ? l : undefined;
 };
 
 const normProgresso = (v: unknown): [number, number] | undefined => {
@@ -118,6 +131,7 @@ export const normCena = (c: unknown): CenaDio => {
     progresso: normProgresso(o.progresso),
     carimbo: opcional(o.carimbo),
     plano: normPlano(o.plano),
+    layout: normLayout(o.layout),
     quando: {hud: opcional(q.hud), alerta: opcional(q.alerta), correcao: opcional(q.correcao), cta: opcional(q.cta), cartao: opcional(q.cartao), carimbo: opcional(q.carimbo)},
   };
 };
@@ -173,5 +187,55 @@ export const fluxoPorCena = (d: DadosT): CfgFluxo[] => {
       trav = c.fluxo.travados ?? 0;
     }
     return {ate, trav};
+  });
+};
+
+// ── posição por cena: legenda e cartão de vidro sem cobrir o assunto, sem se tocar e sem bater na pilha do topo ──
+export const LEGENDA_Y: Record<Faixa, number> = {alto: 600, meio: 900, baixo: 1130};
+export const CARTAO_TOPO: Record<Faixa, number> = {alto: 420, meio: 640, baixo: 860};
+export const CARTAO_FIM_MAX = 1230; // nada abaixo disto (a interface do Reels cobre o resto)
+export const GAP_PILHA = 18; // espaço vertical fixo entre as caixas da pilha do topo
+const LEGENDA_MEIA_ALTURA = 66; // duas linhas de 52 px
+const FOLGA = 24;
+
+// medidas das caixas (px) usadas para o cálculo estático; o desenho usa a altura real do DOM (flex), isto só decide o layout
+export const ALT_HUD = 104;
+export const ALT_ILUSTRATIVO = 36;
+export const ALT_CAPITULO = 72;
+export const ALT_CAPITULO_PROG = 90;
+export const ALT_PILULA = 92;
+export const alturaCartao = (c: CartaoD) => 2 + 26 + 18 + (c.titulo ? 40 : 0) + c.linhas.length * (c.linhas.length > 3 ? 76 : 88);
+export const topoDaPilha = (cenas: CenaDio[]) => (cenas.some((c) => c.hud) ? 330 - ALT_HUD / 2 : 285);
+
+export type PosCena = {legenda: number; cartao: number; fimPilha: number};
+export const layoutDasCenas = (cenas: CenaDio[]): PosCena[] => {
+  const topo = topoDaPilha(cenas);
+  let hud: CenaDio | null = null;
+  let cap: CenaDio | null = null;
+  return cenas.map((c) => {
+    if (c.hud) hud = c;
+    if (c.capitulo) cap = c;
+    const alturas: number[] = [];
+    if (hud) alturas.push(ALT_HUD + (hud.ilustrativo ? ALT_ILUSTRATIVO : 0));
+    if (cap) alturas.push(cap.progresso ? ALT_CAPITULO_PROG : ALT_CAPITULO);
+    [c.alerta, c.correcao, c.cta].forEach((p) => { if (p) alturas.push(ALT_PILULA); });
+    const fimPilha = alturas.length ? topo + alturas.reduce((a, b) => a + b, 0) + GAP_PILHA * (alturas.length - 1) : 0;
+    // legenda: a faixa pedida; se a pilha do topo chegar nela, desce até folgar
+    const pedida = LEGENDA_Y[c.layout?.legenda ?? 'baixo'];
+    const legenda = fimPilha ? Math.min(LEGENDA_Y.baixo, Math.max(pedida, fimPilha + FOLGA + LEGENDA_MEIA_ALTURA)) : pedida;
+    // cartão: a faixa pedida; cede para a outra livre se bater na legenda, na pilha ou no limite de baixo
+    let cartao = CARTAO_TOPO[c.layout?.cartao ?? 'meio'];
+    if (c.cartao) {
+      const h = alturaCartao(c.cartao);
+      const pedido = c.layout?.cartao ?? 'meio';
+      const ordem = [pedido, ...FAIXAS.filter((f) => f !== pedido).sort((a, b) => Math.abs(CARTAO_TOPO[a] - CARTAO_TOPO[pedido]) - Math.abs(CARTAO_TOPO[b] - CARTAO_TOPO[pedido]))];
+      // a faixa nunca entra na pilha do topo: começa logo abaixo dela quando a pilha chega lá
+      const minimo = fimPilha ? fimPilha + GAP_PILHA : 0;
+      const topos = ordem.map((f) => Math.min(Math.max(CARTAO_TOPO[f], minimo), CARTAO_FIM_MAX - h));
+      const livre = (t: number) => t + h <= legenda - LEGENDA_MEIA_ALTURA - FOLGA || t >= legenda + LEGENDA_MEIA_ALTURA + FOLGA;
+      const achou = topos.find(livre);
+      cartao = achou ?? topos[0];
+    }
+    return {legenda, cartao, fimPilha};
   });
 };

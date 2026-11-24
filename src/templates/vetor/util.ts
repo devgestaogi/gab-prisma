@@ -84,8 +84,12 @@ export type SeloRot = {numero: number | string; texto: string};
 export type ContadorRot = {de: number; para: number; prefixo?: string; sufixo?: string; cor?: 'verde' | 'laranja'; icone?: 'dinheiro' | 'relogio' | 'pedido'; palavra?: string; duracao?: number; y?: number};
 export type BalaoRot = {texto: string; de?: number; tipo?: 'fala' | 'pensamento'; x?: number; y?: number; palavra?: string};
 export type ImpactoRot = string | {texto: string; cor?: 'laranja' | 'vermelho'; y?: number; palavra?: string};
+export type PosVertical = 'alto' | 'meio' | 'baixo';
+// plano de imagem: ilustração vetorial chapada gerada do assunto, é o cenário da cena (public/<projeto>/planos/)
+export type PlanoRot = {imagem: string; movimento: 'deriva' | 'zoom' | 'pan'; foco: [number, number]};
+export type LayoutRot = {legenda?: PosVertical; cartao?: PosVertical};
 export type CenaRot = {
   id: string; fala: string; cenario?: Cenario; personagens?: PersonagemRot[]; objeto?: ObjetoRot; selo?: SeloRot; contador?: ContadorRot; balao?: BalaoRot;
   impacto?: ImpactoRot; flash?: boolean | string | {cor?: string; palavra?: string}; hud?: 'mira' | 'visor' | 'radar' | {tipo: 'mira' | 'visor' | 'radar'; x?: number; y?: number; palavra?: string};
-  deriva?: 'zoom' | 'pan' | 'nenhuma'; titulo?: boolean; cta?: string;
+  deriva?: 'zoom' | 'pan' | 'nenhuma'; titulo?: boolean; cta?: string; plano?: PlanoRot; layout?: LayoutRot;
 };

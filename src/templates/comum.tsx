@@ -155,18 +155,52 @@ export type EstiloLegenda = {
   porBloco?: number; // palavras por bloco (quebra também na pontuação)
   largura?: number; // px de largura máxima do bloco
 };
+// palavras que nunca terminam um bloco de legenda (artigo, preposição curta, conjunção)
+const FRACAS = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'e', 'que', 'pra', 'para', 'por', 'com', 'se']);
+const PONTUA = /[,.:;?!…]$/;
+const FIM_FRASE = /[.?!…]$/;
+const fraca = (txt: string) => !PONTUA.test(txt) && FRACAS.has(txt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''));
+// Agrupa em blocos de até `max` palavras (até max+1 só para fugir de palavra fraca no fim): quebra na pontuação e, dentro de
+// cada trecho, escolhe os cortes de menor custo (blocos parecidos, nunca terminando em palavra fraca, sem bloco de uma palavra).
+// O que sobrar de uma palavra só se junta ao vizinho quando o total cabe em max+1.
+export const blocosDeLegenda = <T extends {txt: string}>(tks: T[], max: number): T[][] => {
+  const n = Math.max(1, Math.floor(max));
+  const trechos: T[][] = [[]];
+  tks.forEach((t) => { trechos[trechos.length - 1].push(t); if (PONTUA.test(t.txt)) trechos.push([]); });
+  const blocos: T[][] = [];
+  trechos.filter((tr) => tr.length).forEach((tr) => {
+    const L = tr.length;
+    // melhor[i] = menor custo para cobrir as i primeiras palavras do trecho; corte[i] = onde começa o último bloco
+    const melhor: number[] = [0];
+    const corte: number[] = [0];
+    for (let i = 1; i <= L; i++) {
+      melhor[i] = Infinity;
+      for (let tam = 1; tam <= n + 1 && tam <= i; tam++) {
+        const ini = i - tam;
+        const ultima = tr[i - 1].txt;
+        const custo = melhor[ini] + 10 + (n - tam) * (n - tam) + (tam > n ? 24 : 0) + (tam === 1 && L > 1 ? 60 : 0) + (i < L && fraca(ultima) ? 40 : 0);
+        if (custo < melhor[i]) { melhor[i] = custo; corte[i] = ini; }
+      }
+    }
+    const partes: T[][] = [];
+    for (let i = L; i > 0; i = corte[i]) partes.unshift(tr.slice(corte[i], i));
+    partes.forEach((b) => blocos.push(b));
+  });
+  for (let i = 0; i < blocos.length; i++) {
+    if (blocos[i].length !== 1) continue;
+    const ant = blocos[i - 1];
+    const seg = blocos[i + 1];
+    if (ant && !FIM_FRASE.test(ant[ant.length - 1].txt) && ant.length + 1 <= n + 1) { ant.push(blocos[i][0]); blocos.splice(i, 1); i--; }
+    else if (!FIM_FRASE.test(blocos[i][0].txt) && seg && seg.length + 1 <= n + 1) { seg.unshift(blocos[i][0]); blocos.splice(i, 1); i--; }
+  }
+  return blocos;
+};
 export const LegendaKaraoke: React.FC<{fala: string; palavras: P[]; estilo: EstiloLegenda}> = ({fala, palavras, estilo}) => {
   const f = useCurrentFrame();
   const {fps, width} = useVideoConfig();
   const tks = tempoDasPalavras(fala, palavras as any);
   const max = estilo.porBloco ?? 4;
-  const blocos: (typeof tks)[] = [[]];
-  tks.forEach((t) => {
-    const b = blocos[blocos.length - 1];
-    b.push(t);
-    if (/[,.:;?!…]$/.test(t.txt) || b.length >= max) blocos.push([]);
-  });
-  const bs = blocos.filter((b) => b.length);
+  const bs = blocosDeLegenda(tks, max);
   let atual = 0;
   bs.forEach((b, i) => { if (f >= b[0].f - 1) atual = i; });
   const bloco = bs[atual] ?? [];

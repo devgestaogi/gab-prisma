@@ -6,7 +6,7 @@ import React from 'react';
 import {AbsoluteFill, Img, useCurrentFrame, useVideoConfig} from 'remotion';
 import {cenasValidas, imagemDoProjeto} from '../comum';
 import type {DadosT} from '../comum';
-import {FUNDO, cenasDe} from './tipos';
+import {FUNDO, cenasDe, layoutDasCenas} from './tipos';
 import type {Movimento} from './tipos';
 
 export type Segmento = {src: string; movimento: Movimento; foco: [number, number]; iniF: number; fimF: number};
@@ -96,10 +96,25 @@ const Plano: React.FC<{seg: Segmento; prox: Segmento | undefined; primeiro: bool
   );
 };
 
+// centro (px) do véu atrás da legenda: acompanha a posição da legenda de cada cena, com troca suave de 8 quadros
+const TROCA_VEU = 8;
+const centroDoVeu = (marcas: {f: number; c: number}[], f: number) => {
+  let k = -1;
+  marcas.forEach((m, j) => { if (m.f <= f) k = j; });
+  if (k < 0) return marcas.length ? marcas[0].c : 1130;
+  const ant = k > 0 ? marcas[k - 1].c : marcas[k].c;
+  return ant + (marcas[k].c - ant) * suave((f - marcas[k].f) / TROCA_VEU);
+};
+
 export const Planos: React.FC<{dados: DadosT}> = ({dados}) => {
   const f = useCurrentFrame();
-  const {fps, height} = useVideoConfig();
+  const {fps} = useVideoConfig();
   const segs = React.useMemo(() => segmentosDePlanos(dados, fps), [dados, fps]);
+  const marcas = React.useMemo(() => {
+    const lay = layoutDasCenas(cenasDe(dados));
+    return cenasValidas(dados).map((t) => ({f: Math.round(t.ini * fps), c: lay[t.i]?.legenda ?? 1130}));
+  }, [dados, fps]);
+  const c = Math.round(centroDoVeu(marcas, f));
   return (
     <AbsoluteFill style={{background: FUNDO}}>
       {segs.map((s, k) => {
@@ -111,7 +126,7 @@ export const Planos: React.FC<{dados: DadosT}> = ({dados}) => {
       {/* vinheta leve nas bordas */}
       <AbsoluteFill style={{background: 'radial-gradient(ellipse 80% 70% at 50% 45%, rgba(11,11,13,0) 55%, rgba(11,11,13,0.25) 100%)', pointerEvents: 'none'}} />
       {/* véu suave atrás da faixa da legenda */}
-      <AbsoluteFill style={{background: `linear-gradient(180deg, rgba(11,11,13,0) ${Math.round(height * 0.46)}px, rgba(11,11,13,0.5) ${Math.round(height * 0.58)}px, rgba(11,11,13,0.5) ${Math.round(height * 0.64)}px, rgba(11,11,13,0.22) ${Math.round(height * 0.72)}px, rgba(11,11,13,0) ${Math.round(height * 0.8)}px)`, pointerEvents: 'none'}} />
+      <AbsoluteFill style={{background: `linear-gradient(180deg, rgba(11,11,13,0) ${c - 300}px, rgba(11,11,13,0.5) ${c - 110}px, rgba(11,11,13,0.5) ${c + 110}px, rgba(11,11,13,0.22) ${c + 260}px, rgba(11,11,13,0) ${c + 400}px)`, pointerEvents: 'none'}} />
     </AbsoluteFill>
   );
 };

@@ -3,7 +3,7 @@
 // número finito e texto com teto de tamanho; o que não tem conserto vira ausência. Nenhum componente lê o roteiro cru.
 import {lista, numero, objeto, texto, umDe} from '../comum';
 import {TIPOS_OBJETO} from './Objetos';
-import {CenaRot, Cenario, ContadorRot, PersonagemRot, SeloRot} from './util';
+import {CenaRot, Cenario, ContadorRot, LayoutRot, PersonagemRot, PlanoRot, SeloRot} from './util';
 
 const TIPOS_CENARIO = ['rua', 'escritorio', 'loja', 'cidade-noite', 'casa-noite', 'estrada', 'liso'] as const;
 const TIPOS_PERSONAGEM = ['dono', 'funcionaria', 'funcionario', 'cliente'] as const;
@@ -13,6 +13,8 @@ const ANIMAS = ['balanca', 'anda', 'aceno', 'aponta', 'nenhuma'] as const;
 const ENTRADAS = ['pop', 'desliza-esq', 'desliza-dir', 'nenhuma'] as const;
 const HUDS = ['mira', 'visor', 'radar'] as const;
 const DERIVAS = ['zoom', 'pan', 'nenhuma'] as const;
+const MOVIMENTOS = ['deriva', 'zoom', 'pan'] as const;
+const POSICOES = ['alto', 'meio', 'baixo'] as const;
 const MAX_TEXTO = 120; // teto de segurança para qualquer texto que aparece na tela
 
 const opcional = <T extends string>(v: unknown, opcoes: readonly T[]): T | undefined => (opcoes.includes(v as T) ? (v as T) : undefined);
@@ -112,6 +114,23 @@ const normalizaHud = (v: unknown) => {
   return t ? {tipo: t, x: opcNum(h.x), y: opcNum(h.y), palavra: curto(h.palavra, 40) || undefined} : undefined;
 };
 
+const normalizaPlano = (v: unknown): PlanoRot | undefined => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const p = objeto(v);
+  const imagem = curto(p.imagem, 160);
+  if (!imagem) return undefined;
+  const fr = lista(p.foco);
+  const fx = opcNum(fr[0]), fy = opcNum(fr[1]);
+  return {imagem, movimento: umDe(p.movimento, MOVIMENTOS, 'deriva'), foco: [fx === undefined || fy === undefined ? 0.5 : entre(fx, 0, 1), fx === undefined || fy === undefined ? 0.5 : entre(fy, 0, 1)]};
+};
+
+const normalizaLayout = (v: unknown): LayoutRot | undefined => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const l = objeto(v);
+  const legenda = opcional(l.legenda, POSICOES), cartao = opcional(l.cartao, POSICOES);
+  return legenda || cartao ? {legenda, cartao} : undefined;
+};
+
 export type CenaNorm = Omit<CenaRot, 'flash' | 'hud' | 'impacto' | 'balao'> & {
   flash?: {cor?: string; palavra?: string}; hud?: {tipo: 'mira' | 'visor' | 'radar'; x?: number; y?: number; palavra?: string};
   impacto?: {texto: string; cor?: 'laranja' | 'vermelho'; y?: number; palavra?: string};
@@ -134,6 +153,8 @@ export const normalizaCena = (v: unknown): CenaNorm => {
     deriva: opcional(c.deriva, DERIVAS),
     titulo: c.titulo === false ? false : undefined,
     cta: curto(c.cta, 80) || undefined,
+    plano: normalizaPlano(c.plano),
+    layout: normalizaLayout(c.layout),
   };
 };
 
