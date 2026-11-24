@@ -13,6 +13,29 @@ const DRIVE = process.env.PRISMA_COPIA || '';
 const roteiroArq = (n) => join(RAIZ, 'roteiros', `${n.replace(/[^a-z0-9-]/gi, '')}.json`);
 const lerJSON = (p) => JSON.parse(readFileSync(p, 'utf8'));
 
+// Templates de edição (seletor da página "Novo vídeo"): uma pasta por template com template.json e capa-1..4.jpg.
+// Padrão: ../templates (o estúdio de vídeo do GI guarda o gab-prisma dentro de DESIGN VIDEOS IA, ao lado de templates/);
+// a variável PRISMA_TEMPLATES (~/.gab-prisma.env) aponta outra pasta. Sem a pasta, o seletor só mostra "o Claude escolhe".
+const TEMPLATES = resolve(process.env.PRISMA_TEMPLATES || join(RAIZ, '..', 'templates'));
+const NOME_TEMPLATE = /^[a-z0-9-]{1,60}$/;
+const txt = (v, max = 400) => (typeof v === 'string' ? v.slice(0, max) : '');
+function listarTemplates() {
+  if (!existsSync(TEMPLATES)) return [];
+  return readdirSync(TEMPLATES)
+    .filter((n) => NOME_TEMPLATE.test(n) && existsSync(join(TEMPLATES, n, 'template.json')))
+    .map((n) => {
+      try {
+        const t = lerJSON(join(TEMPLATES, n, 'template.json'));
+        const capas = [1, 2, 3, 4].filter((i) => existsSync(join(TEMPLATES, n, `capa-${i}.jpg`))).map((i) => `/api/template-capa/${n}?i=${i}`);
+        return {nome: n, titulo: txt(t.titulo, 80) || n, status: t.status === 'pronto' ? 'pronto' : 'receita',
+          resumo: txt(t.resumo), quando_usar: txt(t.quando_usar), duracao: txt(t.duracao, 40),
+          ordem: Number.isFinite(Number(t.ordem)) ? Number(t.ordem) : 99, capas};
+      } catch { return null; } // template.json quebrado não derruba a lista
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
+}
+
 // Agentes = trabalhos em segundo plano (Codex, whisper, render). O painel AGENTES lê daqui.
 const agentes = {};
 let seq = 0;
@@ -190,15 +213,32 @@ function api() {
           }
           // Pedido de vídeo (página /pedido.html): o Gabriel escreve o prompt do roteiro; o Claude recebe
           // (ferramentas/esperar-pedido.mjs), escreve o roteiro, gera a voz e edita ao vivo. Nada avança sem o prompt.
+          if (rota === 'templates') return json(res, listarTemplates());
+          if (rota === 'template-capa') {
+            const i = u.searchParams.get('i') || '';
+            if (!NOME_TEMPLATE.test(nome || '') || !/^[1-4]$/.test(i)) return json(res, {erro: 'capa inválida'}, 400);
+            const arq = join(TEMPLATES, nome, `capa-${i}.jpg`);
+            if (!existsSync(arq)) return json(res, {erro: 'capa não existe'}, 404);
+            res.setHeader('content-type', 'image/jpeg');
+            res.setHeader('cache-control', 'no-cache');
+            return res.end(readFileSync(arq));
+          }
           if (rota === 'pedido') {
             const dir = join(RAIZ, 'trabalho', 'pedidos'); mkdirSync(dir, {recursive: true});
             if (req.method === 'POST' && !nome) {
-              const {texto} = JSON.parse((await corpo(req)).toString());
-              if (!texto || !texto.trim()) return json(res, {erro: 'prompt vazio'}, 400);
+              const {texto, template} = JSON.parse((await corpo(req)).toString());
+              if (typeof texto !== 'string' || !texto.trim()) return json(res, {erro: 'prompt vazio'}, 400);
+              // template escolhido na página: tem de existir na pasta de templates; vazio = o Claude escolhe
+              let tpl = null;
+              if (template) {
+                const t = listarTemplates().find((x) => x.nome === template);
+                if (!t) return json(res, {erro: 'template não existe'}, 400);
+                tpl = {nome: t.nome, titulo: t.titulo, status: t.status};
+              }
               const id = new Date().toLocaleString('sv-SE').replace(/[^0-9]/g, '').slice(0, 14);
-              const p = {id, texto: texto.trim(), estado: 'novo', passos: [{t: Date.now(), msg: 'prompt recebido'}], projeto: null};
+              const p = {id, texto: texto.trim(), template: tpl, estado: 'novo', passos: [{t: Date.now(), msg: 'prompt recebido' + (tpl ? ` · template ${tpl.titulo}` : '')}], projeto: null};
               writeFileSync(join(dir, `${id}.json`), JSON.stringify(p, null, 2));
-              log('roteiro', 'novo pedido de vídeo: ' + texto.trim().slice(0, 80));
+              log('roteiro', 'novo pedido de vídeo' + (tpl ? ` [${tpl.nome}]` : '') + ': ' + texto.trim().slice(0, 80));
               return json(res, p);
             }
             if (req.method === 'POST' && nome) {

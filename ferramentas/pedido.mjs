@@ -14,7 +14,7 @@ if (cmd === 'esperar') {
     const p = lista.find((x) => x.estado === 'novo' && !visto.has(x.id));
     if (p) {
       await mudar(p.id, 'roteiro', 'o Claude recebeu o prompt e está escrevendo o roteiro');
-      console.log(JSON.stringify({id: p.id, texto: p.texto}, null, 2));
+      console.log(JSON.stringify({id: p.id, texto: p.texto, template: p.template ?? null}, null, 2));
       process.exit(0);
     }
     await esperar(1500);

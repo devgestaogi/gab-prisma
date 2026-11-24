@@ -34,6 +34,25 @@
   @keyframes pulsa { to { box-shadow: 0 0 0 9px rgba(143,124,247,.05); } }
   .registro { margin-top: 10px; border-top: 1px solid var(--linha); padding-top: 10px; font: 500 12px/1.7 "JetBrains Mono", monospace; color: var(--suave); max-height: 160px; overflow: auto; }
   .registro b { color: var(--laranja); font-weight: 500; margin-right: 8px; }
+  /* seletor de template de edição */
+  .rotulo { font-weight: 700; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--suave); margin: 0 0 10px; }
+  .templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 10px; }
+  .tpl { margin: 0; display: flex; flex-direction: column; gap: 7px; text-align: left; background: var(--painel); color: var(--texto); border: 1px solid var(--linha); border-radius: 14px; padding: 9px 9px 12px; font: 500 13px/1.4 Inter, sans-serif; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+  .tpl:hover:not(:disabled) { border-color: #3a3e49; transform: translateY(-1px); }
+  .tpl.on { border-color: var(--roxo); box-shadow: 0 0 0 3px rgba(143,124,247,.28); }
+  .tpl:disabled { opacity: 1; cursor: default; }
+  .tpl:disabled:not(.on) { opacity: .45; }
+  .tpl .capas { display: flex; gap: 4px; height: 150px; border-radius: 9px; overflow: hidden; background: #0f1014; }
+  .tpl .capas img { flex: 1; min-width: 0; height: 100%; object-fit: cover; }
+  .tpl .capas.livre { display: grid; place-items: center; border: 1px dashed #3a3e49; background: transparent; color: var(--suave); font-size: 28px; }
+  .tpl b { font-size: 14px; font-weight: 700; }
+  .tpl small { color: var(--suave); font-size: 12px; }
+  .tpl .selo { align-self: flex-start; font: 700 10.5px Inter, sans-serif; letter-spacing: .03em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+  .selo.pronto { background: rgba(61,220,132,.14); color: var(--verde); }
+  .selo.receita { background: rgba(238,117,51,.14); color: var(--laranja); }
+  .selo.livre { background: rgba(143,124,247,.14); color: var(--roxo); }
+  .aviso { min-height: 20px; margin: 0 0 18px; font-size: 13px; color: var(--laranja); }
+  .vazio { color: var(--suave); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -44,7 +63,11 @@
 <main>
   <div class="caixa">
     <h1>Novo vídeo</h1>
-    <p class="sub">Escreva o prompt do roteiro: assunto, para quem é, o que precisa aparecer. Nada começa antes disso. Depois o Claude escreve o roteiro, cria a voz e edita ao vivo no estúdio.</p>
+    <p class="sub">Escolha o template de edição e escreva o prompt do roteiro: assunto, para quem é, o que precisa aparecer. Nada começa antes disso. Depois o Claude escreve o roteiro, cria a voz e edita ao vivo no estúdio.</p>
+    <div class="rotulo">Template de edição</div>
+    <div class="templates" id="templates" role="radiogroup" aria-label="Template de edição"><div class="vazio">carregando os templates…</div></div>
+    <p class="aviso" id="aviso"></p>
+    <div class="rotulo">Prompt do roteiro</div>
     <textarea id="prompt" placeholder="Ex.: vídeo de 40 s sobre vendas com o Ítalo, usando a notícia das vendas do GTA 6 e o pilar de vendas da Gestão de Impacto. Termina chamando para a imersão."></textarea>
     <div class="linha"><span id="conta">0 caracteres</span><button id="enviar" disabled>Criar vídeo</button></div>
     <div class="passos" id="passos">
@@ -78,9 +101,42 @@
     try { mostrar(await fetch(`/api/pedido/${id}`).then((r) => r.json())); } catch {}
     setTimeout(acompanhar, 1000);
   }
+  // ── template de edição ──────────────────────────────────────────────────────
+  // '' = o Claude escolhe pelo assunto; senão o nome da pasta em templates/
+  let escolhido = '', lista = [], travado = false;
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const cartao = (x) => `<button type="button" class="tpl" role="radio" data-nome="${esc(x.nome)}" title="${esc(x.resumo)}">
+      <div class="capas">${(x.capas || []).map((c) => `<img src="${esc(c)}" alt="" loading="lazy">`).join('')}</div>
+      <span class="selo ${x.status === 'pronto' ? 'pronto' : 'receita'}">${x.status === 'pronto' ? 'pronto no motor' : 'receita'}</span>
+      <b>${esc(x.titulo)}</b><small>${esc(x.quando_usar)}</small><small>${esc(x.duracao)}</small></button>`;
+  const livre = `<button type="button" class="tpl" role="radio" data-nome=""><div class="capas livre">✦</div>
+      <span class="selo livre">automático</span><b>O Claude escolhe</b><small>Pelo assunto, entre os templates prontos.</small></button>`;
+  function marcar() {
+    $('templates').querySelectorAll('.tpl').forEach((e) => {
+      const on = e.dataset.nome === escolhido;
+      e.classList.toggle('on', on); e.setAttribute('aria-checked', String(on)); e.disabled = travado;
+    });
+    const x = lista.find((y) => y.nome === escolhido);
+    $('aviso').textContent = x && x.status !== 'pronto'
+      ? 'Este template ainda é receita: o motor não faz esse estilo. O Claude avisa antes de começar e propõe construir o estilo ou usar o pronto mais parecido.'
+      : '';
+  }
+  fetch('/api/templates').then((r) => r.json()).then((l) => {
+    lista = Array.isArray(l) ? l : [];
+    if (escolhido && !lista.some((y) => y.nome === escolhido)) escolhido = '';
+    $('templates').innerHTML = livre + lista.map(cartao).join('');
+    $('templates').querySelectorAll('.tpl').forEach((e) => { e.onclick = () => { if (!travado) { escolhido = e.dataset.nome; marcar(); } }; });
+    marcar();
+  }).catch(() => { $('templates').innerHTML = '<div class="vazio">não consegui ler os templates; o pedido segue sem template</div>'; });
+
   b.onclick = async () => {
-    b.disabled = true; t.disabled = true;
-    const p = await fetch('/api/pedido', {method: 'POST', body: JSON.stringify({texto: t.value})}).then((r) => r.json());
+    b.disabled = true; t.disabled = true; travado = true; marcar();
+    const r = await fetch('/api/pedido', {method: 'POST', body: JSON.stringify({texto: t.value, template: escolhido || null})});
+    const p = await r.json();
+    if (!r.ok || !p.id) { // ex.: template apagado da pasta entre abrir a página e enviar
+      $('aviso').textContent = 'O pedido não foi aceito: ' + (p.erro || r.status);
+      b.disabled = false; t.disabled = false; travado = false; marcar(); return;
+    }
     id = p.id; mostrar(p); acompanhar();
   };
 
@@ -88,7 +144,7 @@
 (() => { let seq = null; const f = async () => { try { const j = await fetch('/api/janela?eu=1').then((r) => r.json()); if (seq === null) seq = j.seq; else if (j.seq !== seq) { seq = j.seq; if (j.url && j.url !== location.href) location.href = j.url; } } catch {} setTimeout(f, 1000); }; if (new URLSearchParams(location.search).get('ver') !== '1') f(); })();
   // se já houver um pedido em andamento, continua mostrando
   fetch('/api/pedido/ultimo').then((r) => r.json()).then((p) => {
-    if (p && !['pronto', 'editando'].includes(p.estado) && Date.now() - p.passos[0].t < 3600e3) { id = p.id; t.value = p.texto; t.disabled = true; b.disabled = true; mostrar(p); acompanhar(); }
+    if (p && !['pronto', 'editando'].includes(p.estado) && Date.now() - p.passos[0].t < 3600e3) { id = p.id; t.value = p.texto; t.disabled = true; b.disabled = true; escolhido = (p.template && p.template.nome) || ''; travado = true; marcar(); mostrar(p); acompanhar(); }
   }).catch(() => {});
 </script>
 </body>
