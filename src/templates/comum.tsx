@@ -65,9 +65,9 @@ export const Fontes: React.FC = () => (
 // ── tempo ─────────────────────────────────────────────────────────────────────────────────────────────────
 // palavras da cena i com o quadro relativo ao começo dela (igual ao palavrasDaCena do Filme.tsx)
 export const palavrasDaCena = (dados: DadosT, i: number, fps: number): P[] => {
-  const t = dados.tempo.cenas[i];
-  if (!t) return [];
-  return dados.tempo.palavras.filter((w) => w.ini >= t.ini - 0.05 && w.ini < t.fim).map((w) => ({p: w.p, ini: w.ini, f: Math.round((w.ini - t.ini) * fps)}));
+  const t = dados.tempo?.cenas?.[i];
+  if (!t || !Number.isFinite(t.ini) || !Number.isFinite(t.fim)) return [];
+  return lista<{p: string; ini: number; fim: number}>(dados.tempo.palavras).filter((w) => w.ini >= t.ini - 0.05 && w.ini < t.fim).map((w) => ({p: w.p, ini: w.ini, f: Math.round((w.ini - t.ini) * fps)}));
 };
 // quadro (relativo à cena) em que a voz diz a palavra; padrao se a palavra não aparece
 export const quadroDaPalavraT = (palavras: P[], palavra: string | undefined, padrao: number) => {
@@ -78,21 +78,48 @@ export const quadroDaPalavraT = (palavras: P[], palavra: string | undefined, pad
   return w ? w.f : padrao;
 };
 
+// ── normalização: roteiro vem de agente ou de edição à mão; campo ausente ou malformado nunca derruba o render ──
+export const lista = <T = any,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+export const texto = (v: unknown, padrao = ''): string => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : padrao);
+export const numero = (v: unknown, padrao: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : padrao);
+export const objeto = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
+export const umDe = <T extends string>(v: unknown, opcoes: readonly T[], padrao: T): T => (opcoes.includes(v as T) ? (v as T) : padrao);
+
+// Cenas com intervalo de tempo válido (o alinhamento pode ainda não ter chegado nelas, na montagem ao vivo).
+// Todo componente global (que olha todas as cenas) usa esta lista, nunca dados.tempo.cenas[i] direto.
+export type CenaTempo = {i: number; cena: Record<string, any>; ini: number; fim: number};
+export const cenasValidas = (dados: DadosT): CenaTempo[] =>
+  lista(dados.roteiro.cenas)
+    .map((c, i) => {
+      const t = dados.tempo?.cenas?.[i];
+      return t && Number.isFinite(t.ini) && Number.isFinite(t.fim) && t.fim > t.ini ? {i, cena: objeto(c), ini: t.ini, fim: t.fim} : null;
+    })
+    .filter((x): x is CenaTempo => x !== null);
+
+// Imagem que o roteiro aponta (fundo gerado fora etc.): só dentro de public/<projeto>/<pasta>/, sem "..",
+// sem caminho absoluto e só com caracteres seguros. Devolve o staticFile ou null (o template usa o procedural).
+export const imagemDoProjeto = (projeto: string, pasta: string, arquivo: unknown): string | null => {
+  if (typeof arquivo !== 'string' || !/^[a-z0-9-]{1,80}$/i.test(projeto)) return null;
+  const partes = arquivo.split('/');
+  if (!partes.length || partes.some((p) => !p || p === '.' || p === '..' || !/^[\w.-]{1,120}$/.test(p))) return null;
+  if (!/\.(png|jpe?g|webp)$/i.test(arquivo)) return null;
+  return staticFile(`${projeto}/${pasta}/${partes.join('/')}`);
+};
+
 export type InfoCena = {i: number; dur: number; ini: number; palavras: P[]; primeira: boolean; ultima: boolean};
 // cada cena numa Sequence, do começo da fala dela até a próxima (tempo.json do alinhar.mjs)
 export const Cenas: React.FC<{dados: DadosT; render: (cena: any, info: InfoCena) => React.ReactNode}> = ({dados, render}) => {
   const {fps} = useVideoConfig();
-  const n = dados.roteiro.cenas.length;
+  const validas = cenasValidas(dados);
+  const n = lista(dados.roteiro.cenas).length;
   return (
     <>
-      {dados.roteiro.cenas.map((c, i) => {
-        const t = dados.tempo.cenas[i];
-        if (!t) return null;
-        const from = Math.round(t.ini * fps);
-        const dur = Math.max(1, Math.round(t.fim * fps) - from);
+      {validas.map(({i, cena, ini, fim}) => {
+        const from = Math.round(ini * fps);
+        const dur = Math.max(1, Math.round(fim * fps) - from);
         return (
-          <Sequence key={c.id ?? i} from={from} durationInFrames={dur} name={`${c.id ?? i}`}>
-            {render(c, {i, dur, ini: t.ini, palavras: palavrasDaCena(dados, i, fps), primeira: i === 0, ultima: i === n - 1})}
+          <Sequence key={`${texto(cena.id, '')}:${i}`} from={from} durationInFrames={dur} name={texto(cena.id, String(i))}>
+            {render(cena, {i, dur, ini, palavras: palavrasDaCena(dados, i, fps), primeira: i === 0, ultima: i === n - 1})}
           </Sequence>
         );
       })}

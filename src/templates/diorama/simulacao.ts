@@ -1,7 +1,8 @@
 // Simulação determinística dos peões. O Remotion renderiza quadros fora de ordem e em paralelo, então o fluxo
 // é calculado uma vez, por passos de 1 quadro, só a partir do roteiro (semente fixa), e cada quadro lê a tabela.
+import {cenasValidas, numero, objeto} from './../comum';
 import type {DadosT} from './../comum';
-import {cenasDe, estacoesDe, fluxoPorCena, uEstacao, Z_SPAWN} from './tipos';
+import {estacoesDe, fluxoPorCena, uEstacao, Z_SPAWN} from './tipos';
 
 export const N_PEOES = 170;
 const VELOCIDADE = 3.3; // unidades por segundo
@@ -19,18 +20,27 @@ const mulberry32 = (a: number) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 
+// só as simulações em uso (a edição ao vivo gera uma chave nova a cada mudança): guarda as 3 mais recentes
 const cache = new Map<string, Sim>();
+const CACHE_MAX = 3;
 
 export const simular = (d: DadosT): Sim => {
-  const fps = d.roteiro.formato.fps;
-  const frames = Math.ceil(d.tempo.duracao * fps) + 2;
+  const fps = numero(objeto(d.roteiro?.formato).fps, 30);
+  const frames = Math.ceil(numero(d.tempo?.duracao, 0) * fps) + 2;
   const est = estacoesDe(d);
   const nEst = est.length;
-  const cenas = d.tempo.cenas;
+  const cenas = cenasValidas(d);
   const flux = fluxoPorCena(d);
-  const chave = JSON.stringify([frames, fps, nEst, cenas.map((c) => c.ini), flux, cenasDe(d).length]);
+  const chave = JSON.stringify([frames, fps, nEst, cenas.map((c) => [c.i, c.ini]), flux]);
   const hit = cache.get(chave);
-  if (hit) return hit;
+  if (hit) { cache.delete(chave); cache.set(chave, hit); return hit; }
+  const guardar = (sim: Sim) => {
+    cache.set(chave, sim);
+    while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
+    return sim;
+  };
+  // sem estações não há por onde os peões andarem: tabela vazia (todos invisíveis)
+  if (nEst === 0) return guardar({frames, peoes: new Float32Array(frames * N_PEOES * CAMPOS), mix: new Float32Array(frames), nEst});
 
   const rnd = mulberry32(20261123);
   const dt = 1 / fps;
@@ -59,10 +69,11 @@ export const simular = (d: DadosT): Sim => {
   const aquecer = Math.round(6 * fps);
   for (let passo = -aquecer; passo < frames; passo++) {
     const t = passo * dt;
-    let i = 0;
-    cenas.forEach((c, k) => { if (c.ini <= Math.max(0, t) + 1e-6) i = k; });
-    const {ate, trav} = flux[i] ?? {ate: nEst - 1, trav: 0};
-    const tCena = passo < 0 ? -1e9 : cenas[i].ini;
+    let k = 0; // índice na lista de cenas válidas
+    cenas.forEach((c, j) => { if (c.ini <= Math.max(0, t) + 1e-6) k = j; });
+    const cfg = cenas.length ? flux[cenas[k].i] : undefined;
+    const {ate, trav} = cfg ?? {ate: nEst - 1, trav: 0};
+    const tCena = passo < 0 || !cenas.length ? -1e9 : cenas[k].ini;
 
     // nascimento
     acum += dt;
@@ -75,13 +86,13 @@ export const simular = (d: DadosT): Sim => {
       } else rnd();
     }
     // quando o fluxo se estende (a câmera revela mais estações), a multidão já está saindo do portão anterior
-    if (passo >= 0 && i > 0 && flux[i].ate > flux[i - 1].ate && Math.abs(t - cenas[i].ini) < dt / 2) {
-      for (let g = flux[i - 1].ate; g < flux[i].ate; g++) {
+    if (passo >= 0 && k > 0 && ate > flux[cenas[k - 1].i].ate && Math.abs(t - cenas[k].ini) < dt / 2) {
+      for (let g = flux[cenas[k - 1].i].ate; g < ate; g++) {
         for (let n = 0; n < 16; n++) {
           const livre = st.findIndex((s) => s === 0);
           if (livre < 0) break;
           st[livre] = 1; u[livre] = uEstacao(g) + 1.7 + n * 0.55; lane[livre] = (rnd() * 2 - 1) * 0.55; x[livre] = lane[livre];
-          vel[livre] = 0.9 + rnd() * 0.22; goal[livre] = flux[i].ate; red[livre] = 0; fase[livre] = rnd() * 6.28; nasc[livre] = t;
+          vel[livre] = 0.9 + rnd() * 0.22; goal[livre] = ate; red[livre] = 0; fase[livre] = rnd() * 6.28; nasc[livre] = t;
         }
       }
     }
@@ -147,7 +158,5 @@ export const simular = (d: DadosT): Sim => {
       for (let g = 0; g < nEst; g++) mix[passo * nEst + g] = mixAtual[g];
     }
   }
-  const sim = {frames, peoes, mix, nEst};
-  cache.set(chave, sim);
-  return sim;
+  return guardar({frames, peoes, mix, nEst});
 };

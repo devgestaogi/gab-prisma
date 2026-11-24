@@ -19,3 +19,5 @@ ferramentas/clique
 
 # mídia das demonstrações dos templates (voz de teste, regerável pelo alinhar.mjs)
 public/demo-*/
+# imagens geradas por cena (planos dos templates): geradas pelo Codex, guardadas no pedido do estúdio
+public/*/planos/

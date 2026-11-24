@@ -1,7 +1,8 @@
 // Cenários procedurais em SVG (viewBox 1080x1920), parametrizados por cor. Vetor chapado com luz e sombra suave.
 // Palco frontal: o chão onde os personagens pisam fica em y = CHAO (1130). O cenário ocupa a tela toda.
 import React from 'react';
-import {Img, staticFile, useCurrentFrame} from 'remotion';
+import {Img, useCurrentFrame} from 'remotion';
+import {imagemDoProjeto} from '../comum';
 import {A, L, rng, tom, mistura, Cenario} from './util';
 
 type Cores = Record<string, string>;
@@ -405,8 +406,10 @@ export const Liso: React.FC<{c?: Cores}> = ({c}) => {
 export const CenarioVetor: React.FC<{cenario?: Cenario; projeto: string}> = ({cenario, projeto}) => {
   const tipo = cenario?.tipo ?? 'liso';
   const c = cenario?.cores;
-  if (cenario?.imagem) {
-    return <Img src={staticFile(`${projeto}/cenarios/${cenario.imagem}`)} style={{position: 'absolute', left: 0, top: 0, width: L, height: A, objectFit: 'cover'}} />;
+  // imagem só de public/<projeto>/cenarios/ (sem "..", sem caminho absoluto); se não passar, cai no cenário procedural
+  const img = cenario?.imagem ? imagemDoProjeto(projeto, 'cenarios', cenario.imagem) : null;
+  if (img) {
+    return <Img src={img} style={{position: 'absolute', left: 0, top: 0, width: L, height: A, objectFit: 'cover'}} />;
   }
   return (
     <svg width={L} height={A} viewBox={`0 0 ${L} ${A}`} style={{position: 'absolute', left: 0, top: 0}}>

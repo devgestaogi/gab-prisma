@@ -1,7 +1,8 @@
 // Câmera contínua: nunca corta. Cada cena tem uma pose; na troca a câmera voa até a pose nova (~0,9 s) com easing.
 import {Easing} from 'remotion';
-import type {DadosT} from '../comum';
-import {ESPACO, cenaEm, cenasDe, estacoesDe, idxEstacao, zEstacao} from './tipos';
+import {cenasValidas} from '../comum';
+import type {CenaTempo, DadosT} from '../comum';
+import {ESPACO, cenasDe, estacoesDe, idxEstacao, normCena, zEstacao} from './tipos';
 import type {CenaDio} from './tipos';
 
 export type V3 = [number, number, number];
@@ -34,32 +35,42 @@ export const poseDaCena = (d: DadosT, c: CenaDio): Pose => {
 const mistura = (a: V3, b: V3, e: number): V3 => [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e, a[2] + (b[2] - a[2]) * e];
 const facil = Easing.inOut(Easing.cubic);
 
+// pose (sem respiração) no instante t dentro da cena válida k: o voo parte da pose que a cena anterior
+// realmente alcançou na fronteira (pelo tempo absoluto), não da pose final dela, se ela era curta demais
+const poseVoo = (d: DadosT, v: CenaTempo[], cs: CenaDio[], k: number, t: number): Pose => {
+  const atual = poseDaCena(d, cs[v[k].i]);
+  const dt = t - v[k].ini;
+  if (k <= 0 || dt >= DURACAO_VOO) return atual;
+  const ant = poseVoo(d, v, cs, k - 1, v[k].ini);
+  const e = facil(Math.max(0, dt / DURACAO_VOO));
+  const pos = mistura(ant.pos, atual.pos, e);
+  // o voo faz um arco: sobe um pouco no meio do caminho
+  const dist = Math.hypot(ant.pos[0] - atual.pos[0], ant.pos[1] - atual.pos[1], ant.pos[2] - atual.pos[2]);
+  return {pos: [pos[0], pos[1] + Math.sin(Math.PI * e) * Math.min(4, dist * 0.1), pos[2]], alvo: mistura(ant.alvo, atual.alvo, e)};
+};
+
 export const poseNoTempo = (d: DadosT, t: number): Pose => {
-  const cenas = cenasDe(d);
-  const i = cenaEm(d, t);
-  const atual = poseDaCena(d, cenas[i]);
-  let pos = atual.pos;
-  let alvo = atual.alvo;
-  const dt = t - d.tempo.cenas[i].ini;
-  if (i > 0 && dt < DURACAO_VOO) {
-    const ant = poseDaCena(d, cenas[i - 1]);
-    const e = facil(Math.max(0, dt / DURACAO_VOO));
-    pos = mistura(ant.pos, atual.pos, e);
-    alvo = mistura(ant.alvo, atual.alvo, e);
-    // o voo faz um arco: sobe um pouco no meio do caminho
-    const dist = Math.hypot(ant.pos[0] - atual.pos[0], ant.pos[1] - atual.pos[1], ant.pos[2] - atual.pos[2]);
-    pos = [pos[0], pos[1] + Math.sin(Math.PI * e) * Math.min(4, dist * 0.1), pos[2]];
+  const v = cenasValidas(d);
+  let base: Pose;
+  if (!v.length) base = poseDaCena(d, normCena({})); // palco vazio: visão geral
+  else {
+    let k = 0;
+    v.forEach((c, j) => { if (c.ini <= t + 1e-6) k = j; });
+    base = poseVoo(d, v, cenasDe(d), k, t);
   }
   // respiração: a câmera nunca fica parada
   const r = Math.sin(t * 0.55) * 0.22;
-  return {pos: [pos[0] + r, pos[1] + Math.cos(t * 0.43) * 0.12, pos[2]], alvo: [alvo[0] - r * 0.4, alvo[1], alvo[2]]};
+  return {pos: [base.pos[0] + r, base.pos[1] + Math.cos(t * 0.43) * 0.12, base.pos[2]], alvo: [base.alvo[0] - r * 0.4, base.alvo[1], base.alvo[2]]};
 };
 
-// houve voo na troca para a cena i? (pose diferente da anterior)
-export const temVoo = (d: DadosT, i: number) => {
-  if (i <= 0) return false;
-  const cenas = cenasDe(d);
-  const a = poseDaCena(d, cenas[i - 1]);
-  const b = poseDaCena(d, cenas[i]);
-  return Math.hypot(a.pos[0] - b.pos[0], a.pos[1] - b.pos[1], a.pos[2] - b.pos[2]) > 1.5;
+// instantes (s) em que a câmera voa de verdade (pose diferente da cena válida anterior)
+export const temposDeVoo = (d: DadosT): number[] => {
+  const v = cenasValidas(d);
+  const cs = cenasDe(d);
+  return v.filter((c, k) => {
+    if (k === 0) return false;
+    const a = poseDaCena(d, cs[v[k - 1].i]);
+    const b = poseDaCena(d, cs[c.i]);
+    return Math.hypot(a.pos[0] - b.pos[0], a.pos[1] - b.pos[1], a.pos[2] - b.pos[2]) > 1.5;
+  }).map((c) => c.ini);
 };

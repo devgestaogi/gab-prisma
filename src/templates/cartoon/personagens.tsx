@@ -2,6 +2,7 @@
 // botões, contorno preto grosso, olhos de traço, expressão forte. Tudo determinístico por quadro.
 import React from 'react';
 import {spring} from 'remotion';
+import {numero, objeto, texto, umDe} from '../comum';
 import {clamp, senoide} from './util';
 
 export type Expressao = 'neutro' | 'sono' | 'desconfiado' | 'preocupado' | 'susto' | 'feliz';
@@ -9,6 +10,37 @@ export type TipoPersonagem = 'dono' | 'funcionaria' | 'cliente' | 'silhueta';
 export type Entra = 'pop' | 'deslize' | {tipo?: 'pop' | 'deslize'; palavra?: string; f?: number};
 export type PersonagemRot = {tipo: TipoPersonagem; expressao?: Expressao; x?: number; y?: number; escala?: number; entra?: Entra; olhar?: number; espelhar?: boolean};
 export type Luz = {brilho: number; lado: -1 | 1; quente: string; frio: string; borda: string; sombra: string; halo?: string};
+
+const TIPOS: readonly TipoPersonagem[] = ['dono', 'funcionaria', 'cliente', 'silhueta'];
+const EXPRESSOES: readonly Expressao[] = ['neutro', 'sono', 'desconfiado', 'preocupado', 'susto', 'feliz'];
+const ENTRAS = ['pop', 'deslize'] as const;
+const opcional = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+// Roteiro vem de agente ou de edição à mão: devolve só personagens válidos (null e não objeto saem), com enums e números seguros.
+export const normPersonagens = (v: unknown): PersonagemRot[] => {
+  const l = Array.isArray(v) ? v : [];
+  const saida: PersonagemRot[] = [];
+  l.forEach((it) => {
+    if (!it || typeof it !== 'object' || Array.isArray(it)) return;
+    const o = objeto(it);
+    let entra: Entra | undefined;
+    if (typeof o.entra === 'string') entra = umDe(o.entra, ENTRAS, 'pop');
+    else if (o.entra && typeof o.entra === 'object' && !Array.isArray(o.entra)) {
+      const e = objeto(o.entra);
+      entra = {tipo: umDe(e.tipo, ENTRAS, 'pop'), palavra: typeof e.palavra === 'string' && e.palavra ? e.palavra : undefined, f: opcional(e.f)};
+    }
+    const esc = opcional(o.escala);
+    saida.push({
+      tipo: umDe(o.tipo, TIPOS, 'dono'),
+      expressao: umDe(o.expressao, EXPRESSOES, 'neutro'),
+      x: opcional(o.x), y: opcional(o.y),
+      escala: esc === undefined ? undefined : clamp(esc, 0.1, 3),
+      entra,
+      olhar: clamp(numero(o.olhar, 0), -1, 1),
+      espelhar: o.espelhar === true,
+    });
+  });
+  return saida.slice(0, 8);
+};
 
 const PRETO = '#0c0c10';
 const ELENCO: Record<TipoPersonagem, {pele: string; corpo: string; cabelo: string; detalhe: string}> = {
@@ -207,7 +239,7 @@ export const Personagem: React.FC<{p: PersonagemRot; f: number; fps: number; ent
   const bal = senoide(f, 76, idx * 17) * 1.2;
   const px = par.dx * (1 + idx * 0.04);
   const flip = p.espelhar ? -1 : 1;
-  const uid = `p${idx}${p.tipo[0]}`;
+  const uid = `p${idx}${texto(p.tipo, 'x')[0]}`;
   const sh = esc * par.s;
   return (
     <>

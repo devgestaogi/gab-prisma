@@ -68,7 +68,7 @@ const Feixe: React.FC<{de: V3; para: V3; larg: number; cor: string; op: number}>
     const a = new THREE.Vector3(...de), b = new THREE.Vector3(...para);
     const d = a.clone().sub(b);
     return {pos: a.clone().add(b).multiplyScalar(0.5), q: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()), comp: d.length()};
-  }, [de, para]);
+  }, [de[0], de[1], de[2], para[0], para[1], para[2]]); // deps primitivas: os arrays chegam novos a cada quadro
   return (
     <group position={pos} quaternion={q}>
       {[0, Math.PI / 2].map((a) => (

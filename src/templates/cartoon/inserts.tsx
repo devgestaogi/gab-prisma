@@ -2,7 +2,7 @@
 // A cor de destaque (roteiro.cores.destaque; laranja #EE7533 no GI) só aparece aqui, no objeto-prova.
 import React from 'react';
 import {spring} from 'remotion';
-import {FONTE_SORA, P, quadroDaPalavraT} from '../comum';
+import {FONTE_SORA, P, lista, numero, objeto, quadroDaPalavraT, texto, umDe} from '../comum';
 import {clamp, senoide, suave} from './util';
 
 export type Insert = {
@@ -18,6 +18,42 @@ export type Insert = {
 };
 const PRETO = '#0c0c10';
 const AV = ['#5b8def', '#d96b6b', '#4caf8e', '#b07cd8', '#e0a23a', '#5fb0c9'];
+
+// Normaliza o insert que vem do roteiro: tipo inválido = sem insert; campo de tipo errado vira ausência ou padrão.
+const TIPOS_INS = ['celular', 'papel', 'planilha'] as const;
+const TELAS = ['whatsapp', 'extrato', 'notificacao'] as const;
+const txt = (v: unknown): string | undefined => { const t = texto(v, ''); return t ? t : undefined; };
+export const normInsert = (v: unknown): Insert | undefined => {
+  const o = objeto(v);
+  if (!TIPOS_INS.includes(o.tipo)) return undefined;
+  const tipo = o.tipo as Insert['tipo'];
+  let linhas: any[];
+  if (tipo === 'celular') {
+    linhas = lista(o.linhas).map((l) => {
+      if (typeof l === 'string') return {nome: l.split(':')[0], msg: l.split(':').slice(1).join(':').trim()};
+      if (l && typeof l === 'object' && !Array.isArray(l)) return {nome: texto(l.nome), msg: texto(l.msg), hora: texto(l.hora), n: texto(l.n)};
+      return null;
+    }).filter(Boolean).slice(0, 8);
+  } else if (tipo === 'papel') {
+    linhas = lista(o.linhas).filter((l) => typeof l === 'string' || typeof l === 'number').map((l) => texto(l)).slice(0, 10);
+  } else {
+    linhas = lista(o.linhas).map((r) => (Array.isArray(r) ? r.map((c) => texto(c)) : typeof r === 'string' || typeof r === 'number' ? [texto(r)] : null)).filter(Boolean).slice(0, 8);
+  }
+  const colunas = lista(o.colunas).map((c) => texto(c)).slice(0, 6);
+  const n = objeto(o.notificacao);
+  const dest = typeof o.destaque === 'number' && Number.isFinite(o.destaque) ? Math.round(o.destaque) : undefined;
+  return {
+    tipo,
+    tela: umDe(o.tela, TELAS, 'whatsapp'),
+    palavra: txt(o.palavra),
+    titulo: txt(o.titulo),
+    linhas,
+    colunas: colunas.length ? colunas : undefined,
+    destaque: dest,
+    contador: Math.max(0, Math.min(999, Math.round(numero(o.contador, 0)))),
+    notificacao: o.notificacao && typeof o.notificacao === 'object' && (n.titulo || n.texto) ? {titulo: texto(n.titulo), texto: texto(n.texto)} : undefined,
+  };
+};
 
 export const quadroDeEntrada = (ins: Insert, palavras: P[]) => quadroDaPalavraT(palavras, ins.palavra, 8);
 

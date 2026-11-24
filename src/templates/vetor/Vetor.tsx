@@ -2,12 +2,15 @@
 // Dois modos: "lista" (título fixo + selo numerado, tiktok-05) e "fabula" (contador que acompanha a história, tiktok-04).
 import React from 'react';
 import {AbsoluteFill, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
-import {Cenas, EstiloLegenda, FONTE_OSWALD, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, quadroDaPalavraT, CorDestaque, destaqueDe, marcaDe, useDestaque} from '../comum';
+import {Cenas, EstiloLegenda, cenasValidas, FONTE_OSWALD, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, quadroDaPalavraT, CorDestaque, destaqueDe, marcaDe, useDestaque} from '../comum';
 import {CenarioVetor} from './Cenarios';
 import {ObjetoVetor} from './Objetos';
 import {Personagem, cabecaDe} from './Personagem';
-import {Balao, Contador, Cta, Flash, Hud, Impacto, Selo, TituloFixo} from './Elementos';
-import {A, CenaRot, L, ZONA, limita} from './util';
+import {Balao, Contador, Cta, contadorQuadros, Flash, Hud, Impacto, Selo, TituloFixo} from './Elementos';
+import {A, L, ZONA, limita} from './util';
+import {CenaNorm, normalizaCena, normalizaRoteiro} from './normaliza';
+
+type CenaRot = CenaNorm;
 
 // amarelo das referências: cor de destaque quando o vídeo não é da marca GI
 export const PADRAO_LIVRE = '#FFC83D';
@@ -20,7 +23,7 @@ const ObjetoNoPalco: React.FC<{cena: CenaRot; inicioQ: number}> = ({cena, inicio
   const {fps} = useVideoConfig();
   const o = cena.objeto!;
   const s = spring({frame: f - inicioQ, fps, config: {damping: 10, stiffness: 180, mass: 0.8}});
-  const e = (o.escala ?? 1) * 1;
+  const e = o.escala ?? 1;
   const flut = Math.sin(f * 0.07) * 6;
   if (f < inicioQ) return null;
   return (
@@ -44,11 +47,11 @@ const CenaVetor: React.FC<{dados: PropsTemplate['dados']; cena: CenaRot; info: I
   const t = limita(f / Math.max(1, info.dur), 0, 1);
   const zoom = deriva === 'zoom' ? 1 + 0.035 * t : deriva === 'pan' ? 1.03 : 1;
   const pan = deriva === 'pan' ? (t - 0.5) * 44 : 0;
-  const flash = cena.flash ? (typeof cena.flash === 'object' ? cena.flash : {cor: typeof cena.flash === 'string' ? cena.flash : undefined}) : null;
-  const flashCor = flash ? (flash as any).cor ?? destaque : destaque;
-  const flashQ = flash ? q((flash as any).palavra, 0) : 0;
-  const impacto = cena.impacto ? (typeof cena.impacto === 'string' ? {texto: cena.impacto} : cena.impacto) : null;
-  const hud = cena.hud ? (typeof cena.hud === 'string' ? {tipo: cena.hud} : cena.hud) : null;
+  const flash = cena.flash ?? null;
+  const flashCor = flash?.cor ?? destaque;
+  const flashQ = flash ? q(flash.palavra, 0) : 0;
+  const impacto = cena.impacto ?? null;
+  const hud = cena.hud ?? null;
   const balao = cena.balao;
   const selo = cena.selo;
   const seloRepete = !!(selo && anterior?.selo && String(anterior.selo.numero) === String(selo.numero));
@@ -56,10 +59,10 @@ const CenaVetor: React.FC<{dados: PropsTemplate['dados']; cena: CenaRot; info: I
   const contador = cena.contador;
   const contQ = contador ? q(contador.palavra, 8) : 0;
   const balaoQ = balao ? q(balao.palavra, 16) : 0;
-  const impQ = impacto ? q((impacto as any).palavra, 12) : 0;
-  const hudQ = hud ? q((hud as any).palavra, 8) : 0;
+  const impQ = impacto ? q(impacto.palavra, 12) : 0;
+  const hudQ = hud ? q(hud.palavra, 8) : 0;
   const objQ = cena.objeto ? q(cena.objeto.palavra, 3) : 0;
-  const alvoBalao = balao && personagens.length ? (() => { const p = personagens[limita(balao.de ?? 0, 0, personagens.length - 1)]; const c = cabecaDe(p); return {x: c.x, y: c.topo + 40}; })() : null;
+  const alvoBalao = balao && personagens.length ? (() => { const p = personagens[limita(balao.de, 0, personagens.length - 1)]; const c = cabecaDe(p); return {x: c.x, y: c.topo + 40}; })() : null;
   const ultima = info.ultima;
   const gi = marcaDe(dados) === 'gi';
 
@@ -74,11 +77,11 @@ const CenaVetor: React.FC<{dados: PropsTemplate['dados']; cena: CenaRot; info: I
       </div>
       {/* vinheta suave nas bordas */}
       <div style={{position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 50% 52%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.32) 100%)', pointerEvents: 'none'}} />
-      {hud && <Hud tipo={(hud as any).tipo} x={(hud as any).x ?? cena.objeto?.x ?? 540} y={(hud as any).y ?? cena.objeto?.y ?? 760} inicioQ={hudQ} />}
+      {hud && <Hud tipo={hud.tipo} x={hud.x ?? cena.objeto?.x ?? 540} y={hud.y ?? cena.objeto?.y ?? 760} inicioQ={hudQ} />}
       {balao && <Balao b={balao} alvo={alvoBalao} inicioQ={balaoQ} />}
       {contador && <Contador c={contador} inicioQ={contQ} dur={info.dur} direita={!!selo || modo === 'lista'} topo={selo ? topoSelo + 2 : temTitulo ? 480 : 330} />}
       {selo && <Selo numero={selo.numero} texto={selo.texto} topo={topoSelo} repete={seloRepete} inicio={2} />}
-      {impacto && <Impacto texto={(impacto as any).texto} vermelho={(impacto as any).cor === 'vermelho'} y={(impacto as any).y ?? 560} inicioQ={impQ} />}
+      {impacto && <Impacto texto={impacto.texto} vermelho={impacto.cor === 'vermelho'} y={impacto.y ?? 560} inicioQ={impQ} />}
       {flash && <Flash cor={flashCor} inicioQ={flashQ} />}
       {cena.cta && <Cta texto={cena.cta} topo={temTitulo ? 480 : 440} inicioQ={14} />}
       <LegendaKaraoke fala={cena.fala} palavras={pal} estilo={legendaCom(destaque)} />
@@ -89,7 +92,7 @@ const CenaVetor: React.FC<{dados: PropsTemplate['dados']; cena: CenaRot; info: I
       {balao && <Som som="pop" f={balaoQ} vol={0.45} />}
       {personagens.length > 0 && <Som som="pop" f={2} vol={0.35} />}
       {cena.objeto && <Som som="pop" f={objQ} vol={0.4} />}
-      {contador && [0, 1, 2, 3, 4, 5].map((k) => <Som key={k} som="toque" f={contQ + Math.round(k * ((contador.duracao ?? Math.max(24, Math.min(75, Math.round(info.dur * 0.55)))) / 6))} vol={0.35} />)}
+      {contador && [0, 1, 2, 3, 4, 5].map((k) => <Som key={k} som="toque" f={contQ + Math.round(k * (contadorQuadros(contador, info.dur).dura / 6))} vol={0.35} />)}
       {flash && <Som som="boom" f={flashQ} vol={0.55} />}
       {hud && <Som som="apito" f={hudQ + 8} vol={0.3} />}
       {impacto && <Som som="boom" f={impQ} vol={0.4} />}
@@ -100,21 +103,26 @@ const CenaVetor: React.FC<{dados: PropsTemplate['dados']; cena: CenaRot; info: I
 export const Vetor: React.FC<PropsTemplate> = ({dados}) => {
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const r = dados.roteiro as any;
+  const r = normalizaRoteiro(dados.roteiro as any);
   const cor = destaqueDe(dados, PADRAO_LIVRE);
-  const modo: string = r.modo ?? 'lista';
-  const contorno = (r.estilo ?? 'liso') === 'contorno';
-  const titulo: [string, string] | undefined = r.titulo && r.titulo.length >= 2 ? [r.titulo[0], r.titulo[1]] : undefined;
-  // cena ativa no quadro atual (o título fixo some nas cenas com titulo:false)
-  let ativa = 0;
-  dados.tempo.cenas.forEach((c, i) => { if (f >= Math.round(c.ini * fps)) ativa = i; });
-  const cenaAtiva: CenaRot = r.cenas[ativa] ?? r.cenas[0];
-  const tituloVisivel = !!titulo && cenaAtiva.titulo !== false;
+  const {modo, contorno, titulo, cenas} = r;
+  // só as cenas com tempo válido contam (na montagem ao vivo o alinhamento pode não ter chegado nas últimas)
+  const validas = cenasValidas(dados);
+  const ultimaValida = validas.length ? validas[validas.length - 1].i : -1;
+  // cena ativa no quadro atual (o título fixo some nas cenas com titulo:false); sem cena ativa, o título fica
+  let ativa = -1;
+  validas.forEach(({i, ini}) => { if (f >= Math.round(ini * fps)) ativa = i; });
+  const tituloVisivel = !!titulo && cenas[ativa]?.titulo !== false;
   return (
     <CorDestaque.Provider value={cor}>
     <AbsoluteFill style={{background: '#10142B', fontFamily: FONTE_OSWALD}}>
       <Fontes />
-      <Cenas dados={dados} render={(cena, info) => <CenaVetor dados={dados} cena={cena} info={info} anterior={r.cenas[info.i - 1]} modo={modo} contorno={contorno} temTitulo={!!titulo && cena.titulo !== false} />} />
+      {/* palco vazio (sem cenas, antes da primeira ou depois da última): fundo liso por baixo de tudo */}
+      <CenarioVetor cenario={undefined} projeto={dados.projeto} />
+      <Cenas dados={dados} render={(cenaCrua, info) => {
+        const cena = cenas[info.i] ?? normalizaCena(cenaCrua);
+        return <CenaVetor dados={dados} cena={cena} info={{...info, ultima: info.i === ultimaValida}} anterior={cenas[info.i - 1]} modo={modo} contorno={contorno} temTitulo={!!titulo && cena.titulo !== false} />;
+      }} />
       {titulo && <TituloFixo linhas={titulo} visivel={tituloVisivel} />}
       <Narracao dados={dados} />
     </AbsoluteFill>

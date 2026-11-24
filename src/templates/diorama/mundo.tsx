@@ -1,6 +1,6 @@
 // O mundo 3D do diorama: chão com grade, estações (portões com placa), peões em InstancedMesh e câmera.
 // Tudo é função do quadro absoluto: nada de Math.random, nada de estado entre quadros.
-import React, {useLayoutEffect, useMemo, useRef} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef} from 'react';
 import * as THREE from 'three';
 import {useThree} from '@react-three/fiber';
 import {Easing, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
@@ -8,7 +8,7 @@ import type {DadosT} from '../comum';
 import {tomDe} from '../comum';
 import {poseNoTempo} from './camera';
 import {CAMPOS, N_PEOES, simular} from './simulacao';
-import {FUNDO, VERMELHO, cenaEm, cenasDe, estacoesDe, idxEstacao, revelacoes, zEstacao, ESPACO} from './tipos';
+import {FUNDO, VERMELHO, contextoCena, estacoesDe, idxEstacao, revelacoes, zEstacao, ESPACO} from './tipos';
 import type {Estacao} from './tipos';
 
 const PE = 1.3; // escala dos peões
@@ -76,7 +76,8 @@ const Chao: React.FC<{comprimento: number; cor: string}> = ({comprimento, cor}) 
     const t = texGrade(cor);
     t.repeat.set(220 / 2.2, 220 / 2.2);
     return t;
-  }, []);
+  }, [cor]);
+  useEffect(() => () => grade.dispose(), [grade]);
   const cidade = useMemo(() => {
     // blocos escuros espalhados ao redor do caminho (semente fixa) dão profundidade e paralaxe
     let s = 7;
@@ -120,18 +121,22 @@ const Chao: React.FC<{comprimento: number; cor: string}> = ({comprimento, cor}) 
 };
 
 // ── estação: portão escuro com borda que brilha e placa laranja ──────────────────────────────────────────────
+// no escopo do módulo: declarado dentro da estação, cada render criaria um tipo novo e remontaria as instâncias
+const Faixa: React.FC<{p: [number, number, number]; a: [number, number, number]; cor: string}> = ({p, a, cor}) => (
+  <mesh position={p}><boxGeometry args={a} /><meshBasicMaterial color={cor} toneMapped={false} /></mesh>
+);
 type PropsEstacao = {cor: string; z: number; placa: THREE.Texture; esc: number; glow: number; perigo: number; brilho: THREE.Texture};
 const EstacaoMesh: React.FC<PropsEstacao> = ({cor, z, placa, esc, glow, perigo, brilho}) => {
   const {forte, fraca} = useMemo(() => coresDe(cor), [cor]);
-  const borda = useMemo(() => new THREE.Color(), []);
-  borda.lerpColors(fraca, forte, glow);
-  borda.lerp(COR_VERMELHO, perigo);
-  const luz = useMemo(() => new THREE.Color(), []);
-  luz.lerpColors(forte, COR_VERMELHO, perigo);
+  // cores por quadro viram texto (valor): o R3F ignora prop com a mesma referência, e uma THREE.Color
+  // mutada a cada quadro ficaria com o valor do primeiro quadro processado (render fora de ordem, em paralelo)
+  const aux = useMemo(() => ({b: new THREE.Color(), l: new THREE.Color()}), []);
+  aux.b.lerpColors(fraca, forte, glow);
+  aux.b.lerp(COR_VERMELHO, perigo);
+  aux.l.lerpColors(forte, COR_VERMELHO, perigo);
+  const borda = `#${aux.b.getHexString()}`;
+  const luz = `#${aux.l.getHexString()}`;
   const xz = 0.72 + 0.28 * esc;
-  const Faixa: React.FC<{p: [number, number, number]; a: [number, number, number]}> = ({p, a}) => (
-    <mesh position={p}><boxGeometry args={a} /><meshBasicMaterial color={borda} toneMapped={false} /></mesh>
-  );
   return (
     <group position={[0, 0, z]} scale={[xz, Math.max(0.001, esc), xz]} visible={esc > 0.002}>
       {/* sombra e mancha de luz no chão */}
@@ -145,22 +150,22 @@ const EstacaoMesh: React.FC<PropsEstacao> = ({cor, z, placa, esc, glow, perigo, 
       </mesh>
       {/* laje */}
       <mesh position={[0, 0.1, 0]}><boxGeometry args={[4.2, 0.2, 3.1]} /><meshStandardMaterial color="#202027" roughness={0.65} /></mesh>
-      <Faixa p={[0, 0.215, 1.55]} a={[4.2, 0.05, 0.07]} />
-      <Faixa p={[0, 0.215, -1.55]} a={[4.2, 0.05, 0.07]} />
-      <Faixa p={[2.1, 0.215, 0]} a={[0.07, 0.05, 3.1]} />
-      <Faixa p={[-2.1, 0.215, 0]} a={[0.07, 0.05, 3.1]} />
+      <Faixa p={[0, 0.215, 1.55]} a={[4.2, 0.05, 0.07]} cor={borda} />
+      <Faixa p={[0, 0.215, -1.55]} a={[4.2, 0.05, 0.07]} cor={borda} />
+      <Faixa p={[2.1, 0.215, 0]} a={[0.07, 0.05, 3.1]} cor={borda} />
+      <Faixa p={[-2.1, 0.215, 0]} a={[0.07, 0.05, 3.1]} cor={borda} />
       {/* pilares */}
       {[-1.65, 1.65].map((x) => (
         <group key={x}>
           <mesh position={[x, 1.4, 0]}><boxGeometry args={[0.5, 2.4, 0.6]} /><meshStandardMaterial color="#25252C" roughness={0.55} metalness={0.15} /></mesh>
-          <Faixa p={[x - Math.sign(x) * 0.25, 1.4, 0.3]} a={[0.06, 2.4, 0.06]} />
-          <Faixa p={[x + Math.sign(x) * 0.25, 1.4, 0.3]} a={[0.06, 2.4, 0.06]} />
+          <Faixa p={[x - Math.sign(x) * 0.25, 1.4, 0.3]} a={[0.06, 2.4, 0.06]} cor={borda} />
+          <Faixa p={[x + Math.sign(x) * 0.25, 1.4, 0.3]} a={[0.06, 2.4, 0.06]} cor={borda} />
         </group>
       ))}
       {/* viga */}
       <mesh position={[0, 2.88, 0]}><boxGeometry args={[4.0, 0.62, 0.8]} /><meshStandardMaterial color="#25252C" roughness={0.55} metalness={0.15} /></mesh>
-      <Faixa p={[0, 2.57, 0.4]} a={[4.0, 0.06, 0.06]} />
-      <Faixa p={[0, 3.19, 0.4]} a={[4.0, 0.06, 0.06]} />
+      <Faixa p={[0, 2.57, 0.4]} a={[4.0, 0.06, 0.06]} cor={borda} />
+      <Faixa p={[0, 3.19, 0.4]} a={[4.0, 0.06, 0.06]} cor={borda} />
       {/* vão do portão */}
       <mesh position={[0, 1.4, 0]}>
         <planeGeometry args={[2.8, 2.4]} />
@@ -172,8 +177,8 @@ const EstacaoMesh: React.FC<PropsEstacao> = ({cor, z, placa, esc, glow, perigo, 
         <mesh position={[0, 0, 0.075]}><planeGeometry args={[3.7, 0.93]} /><meshBasicMaterial map={placa} transparent toneMapped={false} /></mesh>
       </group>
       {/* barras no chão, na entrada */}
-      <Faixa p={[-1.2, 0.04, 2.0]} a={[1.0, 0.05, 0.14]} />
-      <Faixa p={[1.2, 0.04, 2.0]} a={[1.0, 0.05, 0.14]} />
+      <Faixa p={[-1.2, 0.04, 2.0]} a={[1.0, 0.05, 0.14]} cor={borda} />
+      <Faixa p={[1.2, 0.04, 2.0]} a={[1.0, 0.05, 0.14]} cor={borda} />
       <pointLight position={[0, 3.6, 2.8]} color={luz} intensity={26 * (0.35 + glow)} distance={13} decay={2} />
     </group>
   );
@@ -244,17 +249,19 @@ export const Mundo: React.FC<{dados: DadosT; cor: string}> = ({dados, cor}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const est = estacoesDe(dados);
-  const cenas = cenasDe(dados);
   const t = frame / fps;
   const comprimento = Math.max(0, est.length - 1) * ESPACO;
-  const placas = useMemo(() => est.map((e) => texPlaca(e.rotulo)), [dados]);
+  const rotulos = est.map((e) => e.rotulo).join('\u0001');
+  const placas = useMemo(() => est.map((e) => texPlaca(e.rotulo)), [rotulos]);
+  useEffect(() => () => placas.forEach((p) => p.dispose()), [placas]);
   const brilho = useMemo(() => texBrilho(), []);
+  useEffect(() => () => brilho.dispose(), [brilho]);
   const reveal = useMemo(() => revelacoes(dados), [dados]);
   const sim = useMemo(() => simular(dados), [dados]);
-  const i = cenaEm(dados, t);
-  const foco = idxEstacao(est, cenas[i]?.foco);
-  const focoAnt = i > 0 ? idxEstacao(est, cenas[i - 1]?.foco) : -2;
-  const dtCena = t - dados.tempo.cenas[i].ini;
+  const ctx = contextoCena(dados, t);
+  const foco = idxEstacao(est, ctx.atual?.foco);
+  const focoAnt = ctx.ant ? idxEstacao(est, ctx.ant.foco) : -2;
+  const dtCena = t - ctx.ini;
   const f = Math.min(frame, sim.frames - 1);
 
   return (
@@ -273,7 +280,7 @@ export const Mundo: React.FC<{dados: DadosT; cor: string}> = ({dados, cor}) => {
         const alvoAnt = focoAnt === -2 ? alvoAtual : focoAnt === k ? 1 : focoAnt < 0 ? 0.75 : 0.5;
         const glow = interpolate(dtCena, [0, 0.6], [alvoAnt, alvoAtual], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
         const perigo = sim.mix[f * sim.nEst + k] ?? 0;
-        return <EstacaoMesh cor={cor} key={e.id} z={zEstacao(k)} placa={placas[k]} esc={esc} glow={glow} perigo={perigo} brilho={brilho} />;
+        return <EstacaoMesh cor={cor} key={k} z={zEstacao(k)} placa={placas[k]} esc={esc} glow={glow} perigo={perigo} brilho={brilho} />;
       })}
       <Multidao dados={dados} brilho={brilho} />
     </>

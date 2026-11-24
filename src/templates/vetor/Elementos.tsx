@@ -15,15 +15,16 @@ const usePop = (inicio: number, damping = 11, stiffness = 210) => {
 export const TituloFixo: React.FC<{linhas: [string, string]; visivel: boolean}> = ({linhas, visivel}) => {
   const destaque = useDestaque();
   const s = usePop(2, 13, 170);
-  const maior = Math.max(linhas[0].length, linhas[1].length);
-  const tam = Math.min(64, Math.floor((L - 2 * ZONA.lateral) / (maior * 0.43)));
+  const maior = Math.max(1, linhas[0].length, linhas[1].length);
+  // Oswald 700 em caixa alta com contorno gasta ~0,56 em por caractere: reduz a fonte até a linha caber na faixa útil (mínimo 30)
+  const tam = Math.max(28, Math.min(64, Math.floor((L - 2 * ZONA.lateral) / (maior * 0.56))));
   const contorno = {WebkitTextStroke: '9px #0B0B16', paintOrder: 'stroke fill' as any};
   return (
     <>
       <div style={{position: 'absolute', left: 0, top: 0, width: L, height: 620, background: 'linear-gradient(180deg, rgba(8,8,20,0.55) 0%, rgba(8,8,20,0.28) 60%, rgba(8,8,20,0) 100%)', opacity: visivel ? 1 : 0}} />
-      <div style={{position: 'absolute', left: ZONA.lateral, right: ZONA.lateral, top: 300, textAlign: 'center', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: tam, lineHeight: 1.08, textTransform: 'uppercase', opacity: visivel ? limita(s * 1.4, 0, 1) : 0, transform: `translateY(${(1 - limita(s, 0, 1.2)) * -40}px)`, letterSpacing: '0.01em'}}>
+      <div style={{position: 'absolute', left: ZONA.lateral, right: ZONA.lateral, top: 300, textAlign: 'center', overflowWrap: 'anywhere', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: tam, lineHeight: 1.08, textTransform: 'uppercase', opacity: visivel ? limita(s * 1.4, 0, 1) : 0, transform: `translateY(${(1 - limita(s, 0, 1.2)) * -40}px)`, letterSpacing: '0.01em'}}>
         <div style={{color: '#FFFFFF', ...contorno}}>{linhas[0]}</div>
-        <div style={{color: destaque, ...contorno}}>{linhas[1]}</div>
+        {linhas[1] && <div style={{color: destaque, ...contorno}}>{linhas[1]}</div>}
       </div>
     </>
   );
@@ -32,14 +33,20 @@ export const TituloFixo: React.FC<{linhas: [string, string]; visivel: boolean}> 
 // ── selo numerado: quadrado laranja + etiqueta escura de 2 linhas ────────────────────────────────────────────
 export const Selo: React.FC<{numero: number | string; texto: string; topo: number; repete: boolean; inicio: number}> = ({numero, texto, topo, repete, inicio}) => {
   const destaque = useDestaque();
-  const s = repete ? 1 : usePop(inicio, 9, 230);
+  const pop = usePop(inicio, 9, 230);
+  const s = repete ? 1 : pop;
   const [l1, l2] = duasLinhas(texto);
-  const larg = Math.max(l1.length, l2.length) * 15.5 + 38;
-  const ehEstrela = numero === '★';
+  // etiqueta limitada à faixa útil (65 até 1015): largura máxima = 1080 − 2·65 − quadrado de 76; a fonte encolhe para caber
+  const maxEtiqueta = L - 2 * ZONA.lateral - 76;
+  const chars = Math.max(1, l1.length, l2.length);
+  const fonte = Math.max(14, Math.min(28, Math.floor((maxEtiqueta - 38) / (chars * 0.62))));
+  const larg = Math.min(maxEtiqueta, Math.round(chars * 0.554 * fonte) + 38);
+  const nTxt = String(numero);
+  const fonteNum = Math.max(20, Math.min(54, Math.floor(66 / (Math.max(1, nTxt.length) * 0.55))));
   return (
     <div style={{position: 'absolute', left: ZONA.lateral, top: topo, display: 'flex', alignItems: 'stretch', transformOrigin: '0 0', transform: `scale(${limita(s, 0, 1.15)})`, opacity: limita(s * 2, 0, 1), filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.35))'}}>
-      <div style={{width: 76, height: 76, background: `linear-gradient(160deg, ${destaque}, ${tomDe(destaque, 0.9)})`, borderRadius: '12px 0 0 12px', display: 'grid', placeItems: 'center', color: '#fff', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: ehEstrela ? 54 : 54, lineHeight: 1}}>{numero}</div>
-      <div style={{height: 76, width: larg, background: 'rgba(14,14,28,0.92)', borderRadius: '0 12px 12px 0', padding: '0 18px', display: 'flex', flexDirection: 'column', justifyContent: 'center', color: '#fff', fontFamily: FONTE_OSWALD, fontWeight: 600, fontSize: 28, lineHeight: 1.08, textTransform: 'uppercase', letterSpacing: '0.02em'}}>
+      <div style={{width: 76, height: 76, background: `linear-gradient(160deg, ${destaque}, ${tomDe(destaque, 0.9)})`, borderRadius: '12px 0 0 12px', display: 'grid', placeItems: 'center', color: '#fff', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: fonteNum, lineHeight: 1}}>{numero}</div>
+      <div style={{height: 76, width: larg, background: 'rgba(14,14,28,0.92)', borderRadius: '0 12px 12px 0', padding: '0 18px', display: 'flex', flexDirection: 'column', justifyContent: 'center', color: '#fff', overflow: 'hidden', fontFamily: FONTE_OSWALD, fontWeight: 600, fontSize: fonte, lineHeight: 1.08, textTransform: 'uppercase', letterSpacing: '0.02em'}}>
         <div>{l1}</div>{l2 && <div>{l2}</div>}
       </div>
     </div>
@@ -61,7 +68,7 @@ const Icone: React.FC<{tipo: string; cor: string}> = ({tipo, cor}) => (
 
 export const contadorQuadros = (c: ContadorRot, dur: number) => {
   const ini = 8;
-  const dura = c.duracao ?? Math.max(24, Math.min(75, Math.round(dur * 0.55)));
+  const dura = Math.max(1, Math.round(c.duracao ?? Math.max(24, Math.min(75, Math.round(dur * 0.55)))));
   return {ini, dura};
 };
 
@@ -69,7 +76,7 @@ export const Contador: React.FC<{c: ContadorRot; inicioQ: number; dur: number; d
   const destaque = useDestaque();
   const f = useCurrentFrame();
   const pop = usePop(Math.max(0, inicioQ - 6), 10, 220);
-  const dura = c.duracao ?? Math.max(24, Math.min(75, Math.round(dur * 0.55)));
+  const {dura} = contadorQuadros(c, dur);
   const t = limita((f - inicioQ) / dura, 0, 1);
   const valor = c.de + (c.para - c.de) * saida(t);
   const sobe = c.para >= c.de;
@@ -107,12 +114,16 @@ const tomBorda = (c: string) => c;
 export const Balao: React.FC<{b: BalaoRot; alvo: {x: number; y: number} | null; inicioQ: number}> = ({b, alvo, inicioQ}) => {
   const pop = usePop(inicioQ, 9, 240);
   const linhas = quebra(b.texto.toUpperCase(), 16);
-  const maior = Math.max(...linhas.map((l) => l.length));
-  const w = Math.max(190, maior * 17.5 + 64), h = linhas.length * 42 + 38;
+  const maior = Math.max(1, ...linhas.map((l) => l.length));
+  // palavra longa sem espaço encolhe a fonte para o balão caber na faixa útil
+  const wMax = L - 2 * ZONA.lateral - 50;
+  const k = Math.min(1, (wMax - 64) / (maior * 17.5));
+  const fonte = Math.max(14, Math.floor(34 * k));
+  const w = Math.max(190, maior * 17.5 * (fonte / 34) + 64), h = linhas.length * 42 + 38;
   const pensa = b.tipo === 'pensamento';
   const ax = alvo?.x ?? 540, ay = alvo?.y ?? 760;
   const cx = limita(b.x ?? ax, ZONA.lateral + w / 2 + 6, L - ZONA.lateral - w / 2 - 6);
-  const by = b.y ?? limita(ay - 60 - 56, ZONA.topo + h + 10, 1200); // base do balão
+  const by = limita(b.y ?? ay - 60 - 56, ZONA.topo + h + 10, Math.max(ZONA.topo + h + 10, ZONA.base - 112)); // base do balão (a cauda desce até ~110 px)
   const topo = by - h;
   const baseTail = limita(ax, cx - w / 2 + 44, cx + w / 2 - 44);
   const s = limita(pop, 0, 1.12);
@@ -142,7 +153,7 @@ export const Balao: React.FC<{b: BalaoRot; alvo: {x: number; y: number} | null; 
           </g>
         )}
         {linhas.map((l, i) => (
-          <text key={i} x={cx} y={topo + 26 + 40 + i * 42 - 12} textAnchor="middle" fontFamily={FONTE_OSWALD} fontWeight={600} fontSize={34} fill={TINTA} letterSpacing="0.02em">{l}</text>
+          <text key={i} x={cx} y={topo + 26 + 40 + i * 42 - 12} textAnchor="middle" fontFamily={FONTE_OSWALD} fontWeight={600} fontSize={fonte} fill={TINTA} letterSpacing="0.02em">{l}</text>
         ))}
       </g>
     </svg>
@@ -156,10 +167,14 @@ export const Impacto: React.FC<{texto: string; vermelho: boolean; y: number; ini
   const pop = usePop(inicioQ, 8, 260);
   const t = f - inicioQ;
   const treme = t >= 0 && t < 12 ? Math.sin(t * 3.3) * (12 - t) * 1.2 : 0;
-  const tam = Math.min(176, Math.floor((L - 2 * ZONA.lateral) / (texto.length * 0.46)));
+  // até 24 caracteres cabe em uma linha; acima disso quebra em 2 linhas equilibradas e a fonte encolhe para caber
+  const linhas = texto.length > 24 ? duasLinhas(texto).filter(Boolean) : [texto];
+  const maior = Math.max(1, ...linhas.map((l) => l.length));
+  const tam = Math.max(40, Math.min(176, Math.floor((L - 2 * ZONA.lateral - (linhas.length > 1 ? 50 : 0)) / (maior * (linhas.length > 1 ? 0.5 : 0.46)))));
+  const topo = limita(y, ZONA.topo, Math.max(ZONA.topo, ZONA.base - linhas.length * tam - 20));
   return (
-    <div style={{position: 'absolute', left: ZONA.lateral, right: ZONA.lateral, top: y, textAlign: 'center', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: tam, lineHeight: 1, textTransform: 'uppercase', color: vermelho ? VERMELHO : destaque, WebkitTextStroke: '14px #0B0B16', paintOrder: 'stroke fill' as any, transform: `translate(${treme}px, ${treme * 0.4}px) rotate(-3deg) scale(${limita(pop, 0, 1.15) * (t < 6 ? 1.12 : 1)})`, opacity: limita(pop * 3, 0, 1), textShadow: '0 10px 0 rgba(0,0,0,0.25)'}}>
-      {texto}
+    <div style={{position: 'absolute', left: ZONA.lateral, right: ZONA.lateral, top: topo, textAlign: 'center', overflowWrap: 'anywhere', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: tam, lineHeight: 1, textTransform: 'uppercase', color: vermelho ? VERMELHO : destaque, WebkitTextStroke: '14px #0B0B16', paintOrder: 'stroke fill' as any, transform: `translate(${treme}px, ${treme * 0.4}px) rotate(-3deg) scale(${limita(pop, 0, 1.15) * (t < 6 ? 1.12 : 1)})`, opacity: limita(pop * 3, 0, 1), textShadow: '0 10px 0 rgba(0,0,0,0.25)'}}>
+      {linhas.map((l, i) => <div key={i}>{l}</div>)}
     </div>
   );
 };
@@ -227,9 +242,13 @@ export const Cta: React.FC<{texto: string; topo: number; inicioQ: number}> = ({t
   const pop = usePop(inicioQ, 9, 220);
   const f = useCurrentFrame();
   const respira = 1 + 0.025 * Math.sin(f * 0.25);
+  // texto longo quebra em 2 linhas e a fonte encolhe: o botão nunca passa da faixa útil (65 a 1015)
+  const linhas = texto.length > 30 ? duasLinhas(texto).filter(Boolean) : [texto];
+  const maior = Math.max(1, ...linhas.map((l) => l.length));
+  const fonte = Math.max(24, Math.min(52, Math.floor((L - 2 * ZONA.lateral - 92 - 24) / (maior * 0.52))));
   return (
-    <div style={{position: 'absolute', left: 0, right: 0, top: topo, display: 'flex', justifyContent: 'center', transform: `scale(${limita(pop, 0, 1.1) * respira})`, opacity: limita(pop * 2, 0, 1)}}>
-      <div style={{background: `linear-gradient(180deg, ${tomDe(destaque, 1.3)}, ${destaque})`, color: '#fff', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: 52, textTransform: 'uppercase', padding: '16px 46px', borderRadius: 60, boxShadow: `0 10px 0 ${tomDe(destaque, 0.77)}, 0 18px 30px rgba(0,0,0,0.35)`, letterSpacing: '0.02em'}}>{texto}</div>
+    <div style={{position: 'absolute', left: ZONA.lateral, right: ZONA.lateral, top: limita(topo, ZONA.topo, ZONA.base - 160), display: 'flex', justifyContent: 'center', transform: `scale(${limita(pop, 0, 1.1) * respira})`, opacity: limita(pop * 2, 0, 1)}}>
+      <div style={{background: `linear-gradient(180deg, ${tomDe(destaque, 1.3)}, ${destaque})`, color: '#fff', fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: fonte, lineHeight: linhas.length > 1 ? 1.1 : 'normal', textAlign: 'center', textTransform: 'uppercase', padding: '16px 46px', borderRadius: linhas.length > 1 ? 44 : 60, maxWidth: '100%', boxSizing: 'border-box', boxShadow: `0 10px 0 ${tomDe(destaque, 0.77)}, 0 18px 30px rgba(0,0,0,0.35)`, letterSpacing: '0.02em'}}>{linhas.map((l, i) => <div key={i}>{l}</div>)}</div>
     </div>
   );
 };

@@ -3,19 +3,52 @@
 // objeto-prova e transição por obstáculo. Tudo determinístico por quadro. Veja LEIAME.md na pasta.
 import React from 'react';
 import {AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {Cenas, EstiloLegenda, FONTE_SORA, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, faixaUtil, quadroDaPalavraT} from '../comum';
+import {Cenas, EstiloLegenda, FONTE_SORA, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, cenasValidas, destaqueDe, faixaUtil, imagemDoProjeto, numero, objeto, quadroDaPalavraT, texto, umDe} from '../comum';
 import {BASES, Cam, Cenario3D, CenarioProps, CenarioTipo, Hora, V3} from './set3d';
-import {Luz, Personagem, PersonagemRot} from './personagens';
-import {Insert, InsertView, quadroDeEntrada} from './inserts';
+import {Luz, Personagem, PersonagemRot, normPersonagens} from './personagens';
+import {Insert, InsertView, normInsert, quadroDeEntrada} from './inserts';
 import {graoDataUrl} from './texturas';
 import {clamp, lerp, senoide, suave} from './util';
 
-type CameraRot = {tipo?: 'push' | 'dolly' | 'plongee' | 'pan'; intensidade?: number; pos?: V3; alvo?: V3};
-type Transicao = 'obstaculo' | 'corte' | {tipo: 'obstaculo'; objeto?: 'pessoa' | 'porta' | 'celular'};
+type CameraRot = {tipo: 'push' | 'dolly' | 'plongee' | 'pan'; intensidade: number; pos?: V3; alvo?: V3};
+type ObjetoObstaculo = 'pessoa' | 'porta' | 'celular';
 type CenaRot = {
   id: string; fala: string;
-  cenario: (CenarioProps & {tipo: CenarioTipo}) | {imagem: string; hora?: Hora; luz?: 'quente' | 'fria'};
-  camera?: CameraRot; foco?: number; personagens?: PersonagemRot[]; insert?: Insert; transicao?: Transicao;
+  cenario: {tipo: CenarioTipo; hora: Hora; luz: 'quente' | 'fria'; quadro: boolean; placa?: string; imagem: string | null};
+  camera: CameraRot; foco: number; personagens: PersonagemRot[]; insert?: Insert; transicao: ObjetoObstaculo | null;
+};
+
+// ── normalização: a cena chega de agente ou de montagem ao vivo (pode faltar campo ou vir com tipo errado) ─────────
+const TIPOS_CEN: readonly CenarioTipo[] = ['sala', 'escritorio', 'varanda', 'porta'];
+const v3 = (v: unknown): V3 | undefined => (Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? ([v[0], v[1], v[2]] as V3) : undefined);
+export const normTransicao = (v: unknown): ObjetoObstaculo | null => {
+  if (v === 'obstaculo') return 'porta';
+  const o = objeto(v);
+  if (o.tipo === 'obstaculo') return umDe(o.objeto, ['pessoa', 'porta', 'celular'] as const, 'porta');
+  return null;
+};
+const normCena = (c: unknown, projeto: string): CenaRot => {
+  const o = objeto(c);
+  const cen = objeto(o.cenario);
+  const imagem = imagemDoProjeto(projeto, 'cenarios', cen.imagem);
+  const tipo = umDe(cen.tipo, TIPOS_CEN, 'sala');
+  const cam = objeto(o.camera);
+  const placa = texto(cen.placa, '').slice(0, 24);
+  return {
+    id: texto(o.id), fala: texto(o.fala),
+    cenario: {
+      tipo, imagem,
+      hora: umDe(cen.hora, ['dia', 'noite', 'tarde'] as const, tipo === 'varanda' ? 'tarde' : tipo === 'sala' ? 'noite' : 'dia'),
+      luz: umDe(cen.luz, ['quente', 'fria'] as const, 'quente'),
+      quadro: cen.quadro === true,
+      placa: placa || undefined,
+    },
+    camera: {tipo: umDe(cam.tipo, ['push', 'dolly', 'plongee', 'pan'] as const, 'push'), intensidade: clamp(numero(cam.intensidade, 1), 0, 4), pos: v3(cam.pos), alvo: v3(cam.alvo)},
+    foco: clamp(numero(o.foco, 0.5), 0, 1),
+    personagens: normPersonagens(o.personagens),
+    insert: normInsert(o.insert),
+    transicao: normTransicao(o.transicao),
+  };
 };
 
 const LEGENDA: EstiloLegenda = {fonte: FONTE_SORA, peso: 700, tamanho: 64, cor: '#FFFFFF', destaque: '#FFFFFF', modo: 'cor', contorno: '#000000', centroY: 1000, porBloco: 3};
@@ -38,12 +71,14 @@ const presetDe = (tipo: string, hora: Hora, fria: boolean): Preset => {
 };
 
 // ── câmera: devolve a pose 3D e o quanto a camada 2D acompanha (paralaxe) ────────────────────────────────────────
-const calcCamera = (tipoCen: CenarioTipo, cam: CameraRot | undefined, t: number, f: number): {cam: Cam; par: {dx: number; s: number}} => {
-  const tipo = cam?.tipo ?? 'push';
-  const k = cam?.intensidade ?? 1;
+const calcCamera = (tipoCen: CenarioTipo, cam: CameraRot, t: number, f: number): {cam: Cam; par: {dx: number; s: number}} => {
+  const tipo = cam.tipo;
+  const k = cam.intensidade;
   const b = BASES[tipoCen];
-  const pos: V3 = [...(cam?.pos ?? b.pos)];
-  const alvo: V3 = [...(cam?.alvo ?? b.alvo)];
+  const pos: V3 = [...(cam.pos ?? b.pos)];
+  const alvo: V3 = [...(cam.alvo ?? b.alvo)];
+  // pos igual a alvo daria direção nula (NaN no push e no pan): o alvo recua 1 unidade em -z, a direção padrão dos sets
+  if (Math.hypot(alvo[0] - pos[0], alvo[1] - pos[1], alvo[2] - pos[2]) < 1e-3) alvo[2] = pos[2] - 1;
   let dx = 0, s = 1;
   if (tipo === 'push') {
     const d: V3 = [alvo[0] - pos[0], alvo[1] - pos[1], alvo[2] - pos[2]];
@@ -95,21 +130,22 @@ const PrimeiroPlano: React.FC<{tipo: CenarioTipo; dx: number; f: number}> = ({ti
 };
 
 // ── uma cena ────────────────────────────────────────────────────────────────────────────────────────────────
-const CenaCartoon: React.FC<{cena: CenaRot; info: InfoCena; projeto: string; W: number; H: number; cor: string}> = ({cena, info, projeto, W, H, cor}) => {
+const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: number; H: number; cor: string}> = ({cena: cenaBruta, info, projeto, W, H, cor}) => {
+  const cena = normCena(cenaBruta, projeto);
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = clamp(f / Math.max(1, info.dur - 1));
-  const cen: any = cena.cenario;
-  const imagem = typeof cen.imagem === 'string';
+  const cen = cena.cenario;
+  const imagem = cen.imagem; // staticFile validado ou null (set procedural)
   const tipoCen: CenarioTipo = imagem ? 'sala' : cen.tipo;
-  const hora: Hora = cen.hora ?? (tipoCen === 'varanda' ? 'tarde' : tipoCen === 'sala' ? 'noite' : 'dia');
-  const pre = presetDe(imagem ? 'sala' : tipoCen, hora, cen.luz === 'fria');
+  const hora: Hora = cen.hora;
+  const pre = presetDe(tipoCen, hora, cen.luz === 'fria');
   const {cam, par} = calcCamera(tipoCen, cena.camera, t, f);
   const ins = cena.insert;
   const entraIns = ins ? quadroDeEntrada(ins, info.palavras) : 0;
-  const foco = cena.foco ?? 0.5;
+  const foco = cena.foco;
   const blur = 2 + foco * 5 + (ins ? 3 * suave((f - entraIns) / 10) : 0);
-  const chars = cena.personagens ?? [];
+  const chars = cena.personagens;
   const quadroEntra = (p: PersonagemRot, i: number) => {
     const e = typeof p.entra === 'object' ? p.entra : undefined;
     return e?.f ?? quadroDaPalavraT(info.palavras, e?.palavra, 6 + i * 7);
@@ -120,9 +156,9 @@ const CenaCartoon: React.FC<{cena: CenaRot; info: InfoCena; projeto: string; W: 
       {/* fundo: 3D (ou imagem gerada) desfocado = profundidade de campo rasa */}
       <div style={{position: 'absolute', inset: 0, filter: `blur(${blur.toFixed(2)}px)`, transform: `scale(1.1)`}}>
         {imagem ? (
-          <Img src={staticFile(`${projeto}/cenarios/${cen.imagem}`)} style={{position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: `translateX(${-par.dx * 0.6}px) scale(${1 + 0.1 * t})`}} />
+          <Img src={imagem} style={{position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', transform: `translateX(${-par.dx * 0.6}px) scale(${1 + 0.1 * t})`}} />
         ) : (
-          <Cenario3D cenario={{...cen, hora}} cam={cam} largura={W} altura={H} />
+          <Cenario3D cenario={{tipo: cen.tipo, hora, luz: cen.luz, quadro: cen.quadro, placa: cen.placa}} cam={cam} largura={W} altura={H} />
         )}
       </div>
       {/* grading: tom da luz, fonte de luz e escuro nas bordas */}
@@ -153,7 +189,7 @@ const CenaCartoon: React.FC<{cena: CenaRot; info: InfoCena; projeto: string; W: 
 };
 
 // ── transição por obstáculo: algo em primeiro plano cruza a tela por poucos quadros e revela a próxima cena ─────────
-const Obstaculo: React.FC<{b: number; objeto: 'pessoa' | 'porta' | 'celular'; sentido: 1 | -1; W: number; H: number}> = ({b, objeto, sentido, W, H}) => {
+const Obstaculo: React.FC<{b: number; objeto: ObjetoObstaculo; sentido: 1 | -1; W: number; H: number}> = ({b, objeto, sentido, W, H}) => {
   const f = useCurrentFrame();
   const p = (f - (b - 4)) / 8;
   if (p < 0 || p > 1) return null;
@@ -188,25 +224,26 @@ const Obstaculo: React.FC<{b: number; objeto: 'pessoa' | 'porta' | 'celular'; se
 export const Cartoon: React.FC<PropsTemplate> = ({dados}) => {
   const {fps, width, height} = useVideoConfig();
   const frame = useCurrentFrame();
-  const cenas = dados.roteiro.cenas as CenaRot[];
   const fu = faixaUtil(width, height);
-  const total = Math.round(dados.tempo.duracao * fps);
-  // fronteiras com obstáculo: a cena de entrada declara "transicao"
-  const fronteiras = cenas
-    .map((c, i) => {
-      const tr = c.transicao;
-      if (i === 0 || !tr || tr === 'corte') return null;
-      const obj = typeof tr === 'object' ? tr.objeto ?? 'porta' : 'porta';
-      return {b: Math.round(dados.tempo.cenas[i].ini * fps), objeto: obj, sentido: (i % 2 ? 1 : -1) as 1 | -1};
+  const total = Math.round(numero(dados.tempo?.duracao, 0) * fps);
+  // fronteiras com obstáculo: a cena de entrada declara "transicao" (só cenas com tempo válido)
+  const validas = cenasValidas(dados);
+  const semCenas = validas.length === 0;
+  const fronteiras = validas
+    .map(({i, cena, ini}) => {
+      const objeto = i === 0 ? null : normTransicao(cena.transicao);
+      return objeto ? {b: Math.round(ini * fps), objeto, sentido: (i % 2 ? 1 : -1) as 1 | -1} : null;
     })
-    .filter(Boolean) as {b: number; objeto: 'pessoa' | 'porta' | 'celular'; sentido: 1 | -1}[];
-  // cor de destaque do objeto-prova: do roteiro; sem ela, âmbar (paleta das referências). Laranja #EE7533 é do GI.
-  const cor = dados.roteiro.cores?.destaque ?? '#F2A93B';
+    .filter(Boolean) as {b: number; objeto: ObjetoObstaculo; sentido: 1 | -1}[];
+  // cor de destaque do objeto-prova: regra comum da marca (gi sem cores = laranja; livre = âmbar das referências)
+  const cor = destaqueDe(dados, '#F2A93B');
   const logoOp = suave((frame - (total - 3 * fps)) / 12);
   return (
     <AbsoluteFill style={{background: '#000', fontFamily: FONTE_SORA}}>
       <Fontes />
-      <Cenas dados={dados} render={(c, info) => <CenaCartoon cena={c as CenaRot} info={info} projeto={dados.projeto} W={width} H={height} cor={cor} />} />
+      {/* palco vazio (montagem ao vivo no começo, ou cenas ainda sem tempo): um set padrão sem personagens */}
+      {semCenas && <CenaCartoon cena={{}} info={{i: 0, dur: Math.max(1, total), ini: 0, palavras: [], primeira: true, ultima: true}} projeto={dados.projeto} W={width} H={height} cor={cor} />}
+      <Cenas dados={dados} render={(c, info) => <CenaCartoon cena={c} info={info} projeto={dados.projeto} W={width} H={height} cor={cor} />} />
       {fronteiras.map((o) => (
         <React.Fragment key={o.b}>
           <Obstaculo b={o.b} objeto={o.objeto} sentido={o.sentido} W={width} H={height} />

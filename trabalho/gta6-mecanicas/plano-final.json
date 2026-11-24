@@ -1,0 +1,237 @@
+{
+  "projeto": "gta6-mecanicas",
+  "titulo": "GTA 6: as mecânicas novas",
+  "template": "diorama-3d-hud",
+  "formato": {
+    "largura": 1080,
+    "altura": 1920,
+    "fps": 30
+  },
+  "legenda": true,
+  "narracao": "trabalho/gta6-mecanicas/narracao.mp3",
+  "cenas": [
+    {
+      "id": "gancho",
+      "fala": "Segundo a Rockstar, o GTA 6 vendeu 3,79 bilhões de dólares em 24 horas.",
+      "hud": {
+        "valor": 3790,
+        "de": 0,
+        "prefixo": "US$ ",
+        "sufixo": " mi",
+        "rotulo": "em 24 horas, segundo a Rockstar",
+        "icone": "dinheiro"
+      },
+      "plano": {
+        "imagem": "01-cidade-tarde.png",
+        "movimento": "avanco",
+        "foco": [
+          0.55,
+          0.45
+        ]
+      }
+    },
+    {
+      "id": "policia",
+      "fala": "E a polícia ficou muito mais esperta.",
+      "alerta": "A polícia mudou",
+      "quando": {
+        "alerta": "polícia"
+      },
+      "plano": {
+        "imagem": "02-viatura.png",
+        "movimento": "lateral"
+      }
+    },
+    {
+      "id": "rastro",
+      "fala": "Agora todo crime deixa rastro.",
+      "plano": {
+        "imagem": "03-testemunhas-camera.png",
+        "movimento": "avanco",
+        "foco": [
+          0.5,
+          0.45
+        ]
+      }
+    },
+    {
+      "id": "descricao",
+      "fala": "Testemunhas e câmeras ajudam a montar a tua descrição.",
+      "plano": {
+        "imagem": "03-testemunhas-camera.png",
+        "movimento": "avanco",
+        "foco": [
+          0.5,
+          0.45
+        ]
+      }
+    },
+    {
+      "id": "perfil",
+      "fala": "Com isso, a polícia monta um perfil criminal de como tu age.",
+      "cartao": {
+        "titulo": "Perfil criminal",
+        "linhas": [
+          {
+            "texto": "Testemunhas",
+            "estado": "ok",
+            "palavra": "isso"
+          },
+          {
+            "texto": "Câmeras",
+            "estado": "ok",
+            "palavra": "polícia"
+          },
+          {
+            "texto": "Como o crime foi feito",
+            "estado": "ok",
+            "palavra": "perfil"
+          }
+        ]
+      },
+      "plano": {
+        "imagem": "04-perfil.png",
+        "movimento": "avanco",
+        "foco": [
+          0.65,
+          0.4
+        ]
+      }
+    },
+    {
+      "id": "estrelas",
+      "fala": "E o nível de procurado voltou a ter seis estrelas.",
+      "quando": {
+        "alerta": "procurado"
+      },
+      "alerta": "Nível máximo de procurado",
+      "plano": {
+        "imagem": "05-bloqueio.png",
+        "movimento": "sobe"
+      },
+      "hud": {
+        "valor": 6,
+        "de": 5,
+        "rotulo": "estrelas de procurado (no GTA 5, eram 5)"
+      }
+    },
+    {
+      "id": "combustivel",
+      "fala": "Fora da polícia, o combustível agora acaba, e carro elétrico precisa carregar.",
+      "capitulo": "NOVIDADE 1 · COMBUSTÍVEL",
+      "progresso": [
+        1,
+        4
+      ],
+      "cartao": {
+        "titulo": "Na rua",
+        "linhas": [
+          {
+            "texto": "Combustível acaba",
+            "estado": "erro",
+            "palavra": "combustível"
+          },
+          {
+            "texto": "Elétrico precisa carregar",
+            "estado": "neutro",
+            "palavra": "elétrico"
+          }
+        ]
+      },
+      "plano": {
+        "imagem": "06-posto.png",
+        "movimento": "lateral"
+      },
+      "hud": {
+        "valor": 4,
+        "de": 0,
+        "rotulo": "novidades fora da polícia"
+      }
+    },
+    {
+      "id": "rastreador",
+      "fala": "Alguns carros têm rastreador.",
+      "capitulo": "NOVIDADE 2 · RASTREADOR",
+      "progresso": [
+        2,
+        4
+      ],
+      "alerta": "Carro com rastreador",
+      "quando": {
+        "alerta": "rastreador"
+      },
+      "plano": {
+        "imagem": "07-rastreador.png",
+        "movimento": "avanco",
+        "foco": [
+          0.6,
+          0.3
+        ]
+      }
+    },
+    {
+      "id": "mira",
+      "fala": "Jason e Lucia miram em câmera lenta, cada um do seu jeito.",
+      "capitulo": "NOVIDADE 3 · MIRA LENTA",
+      "progresso": [
+        3,
+        4
+      ],
+      "cartao": {
+        "titulo": "Mira em câmera lenta",
+        "linhas": [
+          {
+            "texto": "Jason: acerta braço e arma",
+            "estado": "neutro",
+            "palavra": "jason"
+          },
+          {
+            "texto": "Lucia: um tiro certeiro",
+            "estado": "neutro",
+            "palavra": "lucia"
+          }
+        ]
+      },
+      "plano": {
+        "imagem": "08-telhado.png",
+        "movimento": "orbita"
+      }
+    },
+    {
+      "id": "renascer",
+      "fala": "E se tu morrer, volta perto de onde caiu, não no hospital.",
+      "capitulo": "NOVIDADE 4 · RENASCER",
+      "progresso": [
+        4,
+        4
+      ],
+      "correcao": "Volta perto de onde caiu",
+      "quando": {
+        "correcao": "volta"
+      },
+      "plano": {
+        "imagem": "09-recomeco.png",
+        "movimento": "sobe"
+      }
+    },
+    {
+      "id": "fecho",
+      "fala": "Salva esse vídeo e manda pra quem vai jogar.",
+      "cta": "Salva e manda pra quem vai jogar",
+      "quando": {
+        "cta": "salva"
+      },
+      "plano": {
+        "imagem": "10-cidade-noite.png",
+        "movimento": "avanco",
+        "foco": [
+          0.5,
+          0.55
+        ]
+      }
+    }
+  ],
+  "cores": {
+    "destaque": "#F2785C"
+  }
+}

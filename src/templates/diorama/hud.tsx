@@ -3,7 +3,7 @@
 import React from 'react';
 import {interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 import type {DadosT} from '../comum';
-import {FONTE_OSWALD, FONTE_SORA, useDestaque} from '../comum';
+import {FONTE_OSWALD, FONTE_SORA, cenasValidas, useDestaque} from '../comum';
 import {VERDE, VERMELHO, cenasDe} from './tipos';
 import type {CartaoD, HudD} from './tipos';
 
@@ -37,11 +37,12 @@ const fmt = (v: number, pre = '', suf = '') => `${pre}${Math.round(v).toLocaleSt
 type SegHud = {ini: number; dur: number; hud: HudD; de: number; ilustrativo: boolean};
 export const segmentosHud = (d: DadosT): SegHud[] => {
   const segs: SegHud[] = [];
-  cenasDe(d).forEach((c, i) => {
+  const cs = cenasDe(d);
+  cenasValidas(d).forEach((t) => {
+    const c = cs[t.i];
     if (!c.hud) return;
-    const t = d.tempo.cenas[i];
     const ant = segs[segs.length - 1];
-    segs.push({ini: t.ini + (i === 0 ? 0 : 0.12), dur: t.fim - t.ini, hud: c.hud, de: c.hud.de ?? (ant ? ant.hud.valor : 0), ilustrativo: !!c.ilustrativo});
+    segs.push({ini: t.ini + (t.i === 0 ? 0 : 0.12), dur: t.fim - t.ini, hud: c.hud, de: c.hud.de ?? (ant ? ant.hud.valor : 0), ilustrativo: !!c.ilustrativo});
   });
   return segs;
 };
@@ -50,6 +51,7 @@ export const Hud: React.FC<{dados: DadosT}> = ({dados}) => {
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = f / fps;
+  const destaque = useDestaque();
   const segs = React.useMemo(() => segmentosHud(dados), [dados]);
   if (!segs.length) return null;
   let k = -1;
@@ -64,7 +66,6 @@ export const Hud: React.FC<{dados: DadosT}> = ({dados}) => {
   const e = 1 - Math.pow(1 - p, 4);
   const valor = s.de + (s.hud.valor - s.de) * e;
   const caindo = s.hud.valor < s.de;
-  const destaque = useDestaque();
   const iconeCor = caindo ? VERMELHO : destaque;
   const linhas = duasLinhas(s.hud.rotulo);
   return (
@@ -93,14 +94,14 @@ export const Capitulo: React.FC<{dados: DadosT}> = ({dados}) => {
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = f / fps;
-  const segs = React.useMemo(() => cenasDe(dados).map((c, i) => ({c, ini: dados.tempo.cenas[i].ini + 0.1})).filter((x) => x.c.capitulo), [dados]);
+  const segs = React.useMemo(() => { const cs = cenasDe(dados); return cenasValidas(dados).map((t) => ({c: cs[t.i], ini: t.ini + 0.1})).filter((x) => x.c.capitulo); }, [dados]);
   if (!segs.length) return null;
   let k = -1;
   segs.forEach((s, j) => { if (s.ini <= t) k = j; });
   if (k < 0) return null;
   const s = segs[k];
   const m = mola(Math.round((t - s.ini) * fps), fps, {damping: 15, stiffness: 190, mass: 0.6});
-  const partes = (s.c.capitulo as string).split('·').map((x) => x.trim());
+  const partes = (s.c.capitulo ?? '').split('·').map((x) => x.trim());
   const [a, b] = partes.length > 1 ? [partes[0], partes.slice(1).join(' · ')] : [partes[0], ''];
   const prog = s.c.progresso;
   const comHud = segmentosHud(dados).length > 0;
@@ -123,8 +124,8 @@ export const Pilula: React.FC<{texto: string; tipo: 'alerta' | 'correcao' | 'cta
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
   const m = mola(f - f0, fps, {damping: 12, stiffness: 240, mass: 0.6});
-  if (f < f0) return null;
   const destaque = useDestaque();
+  if (f < f0) return null;
   const cor = tipo === 'alerta' ? VERMELHO : tipo === 'correcao' ? VERDE : destaque;
   const txt = tipo === 'alerta' ? '#FFFFFF' : '#0B0B0D';
   const tam = texto.length > 32 ? 28 : texto.length > 24 ? 32 : 36;
@@ -153,7 +154,7 @@ export const CartaoVidro: React.FC<{cartao: CartaoD; f0: number; palavras: Recor
   const alt = n > 3 ? 76 : 88;
   return (
     <div style={{position: 'absolute', left: 140, right: 140, top: 650, transform: `translateY(${(1 - m) * 70}px) scale(${0.94 + 0.06 * m})`, opacity: Math.min(1, m * 1.8), padding: '26px 34px 18px', borderRadius: 30, background: 'rgba(16,16,18,0.80)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', border: BORDA, boxShadow: '0 24px 60px rgba(0,0,0,0.55)'}}>
-      <div style={{fontFamily: FONTE_SORA, fontWeight: 600, fontSize: 22, letterSpacing: 2.4, color: '#9AA3AD', textTransform: 'uppercase', marginBottom: 12}}>{cartao.titulo}</div>
+      {cartao.titulo ? <div style={{fontFamily: FONTE_SORA, fontWeight: 600, fontSize: 22, letterSpacing: 2.4, color: '#9AA3AD', textTransform: 'uppercase', marginBottom: 12}}>{cartao.titulo}</div> : null}
       {cartao.linhas.map((l, i) => {
         const fi = f0 + (palavras[i] ?? 10 + i * 9);
         const mi = mola(f - fi, fps, {damping: 15, stiffness: 220, mass: 0.6});
@@ -171,19 +172,37 @@ export const CartaoVidro: React.FC<{cartao: CartaoD; f0: number; palavras: Recor
 };
 
 // ── carimbo: contorno vermelho que bate (130% → 100%) ─────────────────────────────────────────────────────
+// cabe na faixa útil (1080 − 2×65 = 950 px): reduz a fonte até caber e, se ainda não couber, quebra em linhas
+const LARGURA_CARIMBO = 950;
+const medirCarimbo = (texto: string, fs: number) => {
+  const espaco = (8 / 132) * fs * texto.length; // letterSpacing proporcional
+  try {
+    const g = document.createElement('canvas').getContext('2d');
+    if (g) { g.font = `700 ${fs}px Oswald`; return g.measureText(texto).width + espaco; }
+  } catch { /* sem canvas: estima */ }
+  return texto.length * fs * 0.5 + espaco;
+};
+export const tamanhoCarimbo = (texto: string): {fs: number; quebra: boolean} => {
+  const t = texto.toUpperCase();
+  // largura útil do texto: faixa − borda (2×11) − respiro lateral (2×44) − folga do giro de 8°
+  const util = LARGURA_CARIMBO - 22 - 88 - 40;
+  for (let fs = 132; fs >= 64; fs -= 4) if (medirCarimbo(t, fs) <= util) return {fs, quebra: false};
+  return {fs: 72, quebra: true};
+};
+
 export const Carimbo: React.FC<{texto: string; f0: number}> = ({texto, f0}) => {
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
+  const {fs, quebra} = React.useMemo(() => tamanhoCarimbo(texto), [texto]);
   if (f < f0) return null;
   const m = spring({frame: f - f0, fps, config: {damping: 11, stiffness: 340, mass: 0.55}});
   const esc = 1.3 - 0.3 * Math.min(1.08, m);
   const op = interpolate(f - f0, [0, 3], [0, 1], {extrapolateRight: 'clamp'});
   return (
-    <div style={{position: 'absolute', left: 0, right: 0, top: 850, display: 'flex', justifyContent: 'center', opacity: op, transform: `translateY(-50%) rotate(-8deg) scale(${esc})`}}>
-      <div style={{fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: 132, letterSpacing: 8, color: VERMELHO, border: `11px solid ${VERMELHO}`, borderRadius: 20, padding: '8px 44px 2px', background: 'rgba(229,72,77,0.10)', textShadow: '0 0 30px rgba(229,72,77,0.45)', boxShadow: '0 0 40px rgba(229,72,77,0.35), inset 0 0 30px rgba(229,72,77,0.18)', textTransform: 'uppercase', whiteSpace: 'nowrap'}}>
+    <div style={{position: 'absolute', left: 65, right: 65, top: 850, display: 'flex', justifyContent: 'center', opacity: op, transform: `translateY(-50%) rotate(-8deg) scale(${esc})`}}>
+      <div style={{fontFamily: FONTE_OSWALD, fontWeight: 700, fontSize: fs, letterSpacing: (8 / 132) * fs, color: VERMELHO, border: `11px solid ${VERMELHO}`, borderRadius: 20, padding: '8px 44px 2px', background: 'rgba(229,72,77,0.10)', textShadow: '0 0 30px rgba(229,72,77,0.45)', boxShadow: '0 0 40px rgba(229,72,77,0.35), inset 0 0 30px rgba(229,72,77,0.18)', textTransform: 'uppercase', whiteSpace: quebra ? 'normal' : 'nowrap', textAlign: 'center', overflowWrap: 'anywhere', maxWidth: '100%', boxSizing: 'border-box'}}>
         {texto}
       </div>
     </div>
   );
 };
-

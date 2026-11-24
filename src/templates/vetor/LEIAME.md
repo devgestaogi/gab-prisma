@@ -10,6 +10,7 @@ Roteiro com `"template": "vetor-chapado-contador"` é despachado pelo `src/Filme
 | `Personagem.tsx` | dono, funcionaria, funcionario, cliente; expressões e animações; estilo `contorno` ou `liso` |
 | `Objetos.tsx` | celular, agenda, relogio, relogio-duplo, cofre, tomada, porta, moedas, caixa, grafico |
 | `Elementos.tsx` | título fixo, selo, contador, balão, impacto, flash, HUD (mira, visor, radar), CTA |
+| `normaliza.ts` | normaliza roteiro e cena na entrada (tipo errado vira ausência, enum inválido vira padrão, texto com teto); roteiro sem cenas ou com cena incompleta renderiza palco liso |
 | `util.ts` | tipos do roteiro, cores, gerador com semente, constantes da faixa útil |
 
 Campos do roteiro: seção 7 de `DESIGN VIDEOS IA/templates/vetor-chapado-contador/TEMPLATE.md`.
