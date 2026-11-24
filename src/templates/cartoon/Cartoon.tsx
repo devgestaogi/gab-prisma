@@ -81,12 +81,13 @@ const layoutDaCena = (cena: CenaRot, planos: boolean) => {
   return {lg, pi: ins ? pi : null, ins};
 };
 // eventos de som de uma cena em quadros ABSOLUTOS (a cena começa em iniAbs); tudo vai para um agendaDeSons só
-const eventosDaCena = (cena: CenaRot, palavras: P[], iniAbs: number, planos: boolean): EventoSom[] => {
+// `fimAbs` (exclusivo) é o fim da Sequence da cena: o som de um elemento da cena não vale depois que ela acabou
+const eventosDaCena = (cena: CenaRot, palavras: P[], iniAbs: number, fimAbs: number, planos: boolean): EventoSom[] => {
   const ev: EventoSom[] = [];
   if (!planos) cena.personagens.forEach((p, i) => { if (p.entra) ev.push({f: quadroEntra(p, i, palavras), som: 'pop', vol: 0.5, prioridade: 1}); });
   const {ins} = layoutDaCena(cena, planos);
   if (ins) ev.push(...sonsDoInsert(ins, quadroDeEntrada(ins, palavras), planos).map((e) => ({...e, prioridade: 1})));
-  return ev.map((e) => ({...e, f: iniAbs + e.f}));
+  return ev.map((e) => ({...e, f: iniAbs + e.f, ate: fimAbs}));
 };
 
 // ── luz de cada cenário: usada nos personagens 2D, no grading e no brilho da fonte de luz ───────────────────────
@@ -298,8 +299,12 @@ export const planejar = (dados: PropsTemplate['dados'], fps: number) => {
   // UMA agenda para o vídeo todo, em quadros absolutos: whoosh das transições (prioridade 2, fica no quadro do visual)
   // e sons dos inserts e personagens (prioridade 1, cedem), nunca dois a menos de 3 quadros um do outro
   const eventos: EventoSom[] = [
-    ...fronteiras.map((o) => ({f: o.b - 4, som: 'whoosh', vol: 0.4, prioridade: 2})),
-    ...validas.flatMap(({i, ini}) => eventosDaCena(normCena(dados.roteiro.cenas[i], dados.projeto), palavrasDaCena(dados, i, fps), Math.round(ini * fps), planos)),
+    ...fronteiras.map((o) => ({f: o.b - 4, som: 'whoosh', vol: 0.4, prioridade: 2, ate: o.b + 5})), // o obstáculo some em b + 4
+    ...validas.flatMap(({i, ini, fim}) => {
+      const de = Math.round(ini * fps);
+      const ate = de + Math.max(1, Math.round(fim * fps) - de); // igual à duração da Sequence em <Cenas>
+      return eventosDaCena(normCena(dados.roteiro.cenas[i], dados.projeto), palavrasDaCena(dados, i, fps), de, ate, planos);
+    }),
   ];
   return {segs, planos, fronteiras, sons: agendaDeSons(eventos, {folga: 3}), semCenas: validas.length === 0};
 };

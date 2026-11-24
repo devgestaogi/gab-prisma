@@ -115,18 +115,21 @@ const planejar = (dados: DadosT, fps: number): Plano => {
   const ev: EventoSom[] = [];
   if (!imagem) reveal.forEach((t) => ev.push({som: 'pop', f: Math.round(t * fps), vol: 0.4, prioridade: 1}));
   (imagem ? trocasDePlanos(segs) : temposDeVoo(dados).map((ini) => Math.round(ini * fps))).forEach((f) => ev.push({som: 'whoosh', f, vol: imagem ? 0.35 : 0.4, prioridade: 2}));
-  segmentosHud(dados).forEach((h) => ev.push({som: 'toque', f: Math.round(h.ini * fps), vol: 0.35, prioridade: 2}));
+  segmentosHud(dados).forEach((h) => ev.push({som: 'toque', f: Math.round(h.ini * fps), vol: 0.35, prioridade: 2, ate: Math.round((h.ini + h.dur) * fps)}));
   validas.forEach((x) => {
     const c = cenas[x.i];
     const from = Math.round(x.ini * fps);
     const dur = Math.max(1, Math.round(x.fim * fps) - from);
     const t = temposDaCena(c, palavrasDaCena(dados, x.i, fps), dur);
-    if (c.capitulo) ev.push({som: 'pop', f: Math.round((x.ini + 0.1) * fps), vol: 0.35, prioridade: 3});
-    if (c.alerta) ev.push({som: 'apito', f: from + t.alerta, vol: 0.42, prioridade: 4});
-    if (c.correcao) ev.push({som: 'ding', f: from + t.correcao, vol: 0.5, prioridade: 4});
-    if (c.cta) ev.push({som: 'pop', f: from + t.cta, vol: 0.45, prioridade: 3});
-    if (c.cartao) ev.push({som: 'pop', f: from + t.cartao, vol: 0.4, prioridade: 3});
-    if (c.carimbo) ev.push({som: 'boom', f: from + t.carimbo, vol: 0.5, prioridade: 5});
+    // ate = fim da Sequence da cena: nenhum som vale depois que o elemento dele (e a cena) saiu
+    const ate = from + dur;
+    const e = (f: number, som: string, vol: number, prioridade: number): EventoSom => ({f, som, vol, prioridade, ate});
+    if (c.capitulo) ev.push(e(Math.round((x.ini + 0.1) * fps), 'pop', 0.35, 3));
+    if (c.alerta) ev.push(e(from + t.alerta, 'apito', 0.42, 4));
+    if (c.correcao) ev.push(e(from + t.correcao, 'ding', 0.5, 4));
+    if (c.cta) ev.push(e(from + t.cta, 'pop', 0.45, 3));
+    if (c.cartao) ev.push(e(from + t.cartao, 'pop', 0.4, 3));
+    if (c.carimbo) ev.push(e(from + t.carimbo, 'boom', 0.5, 5));
   });
   return {segs, imagem, reveal, posicoes, marcas, sons: agendaDeSons(ev, {folga: 3})};
 };

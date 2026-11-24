@@ -10,7 +10,8 @@ let _g: CanvasRenderingContext2D | null | undefined;
 let _prontas = false;
 const _cache = new Map<string, number>();
 // chamado quando as fontes embutidas carregaram: só a partir daí as medidas entram no cache (antes seriam da fonte substituta)
-export const fontesProntas = () => { _prontas = true; _cache.clear(); };
+// o cache de resultados de ajustarTexto (abaixo) também se invalida aqui: guarda quebra, corpo e reticências já calculados
+export const fontesProntas = () => { _prontas = true; _cache.clear(); _ajustes.clear(); };
 
 // largura de um texto (px) na fonte CSS dada; sem canvas, estima pelo corpo
 export const medir = (texto: string, fonte: string, folgaPorLetra = 0.58): number => {
@@ -38,7 +39,23 @@ export type OpcAjuste = {
   maxLinhas?: 1 | 2;
 };
 
+// Resultado completo do ajuste (quebra, corpo, reticências) memorizado por texto + opções, num cache de módulo limitado
+// (200 entradas, descarte do mais antigo). Pílula e capítulo chamam isto a cada quadro com o mesmo texto: sem o cache cada
+// chamada refaz a busca de tamanhos e de divisões (≈90 ms num texto de 300 palavras). Só vale com as fontes prontas
+// (antes a medida é da fonte substituta); fontesProntas() zera tudo. O resultado é compartilhado: quem chama não altera.
+const _ajustes = new Map<string, Ajuste>();
+const LIMITE_AJUSTES = 200;
 export const ajustarTexto = (bruto: string, o: OpcAjuste): Ajuste => {
+  if (!_prontas) return calcularAjuste(bruto, o);
+  const chave = `${o.peso}|${o.fsMax}|${o.piso1}|${o.fsMin ?? ''}|${o.largura}|${o.espaco ?? 0}|${o.maxLinhas ?? 2}|${bruto}`;
+  const guardado = _ajustes.get(chave);
+  if (guardado) return guardado;
+  const novo = calcularAjuste(bruto, o);
+  if (_ajustes.size >= LIMITE_AJUSTES) _ajustes.delete(_ajustes.keys().next().value as string);
+  _ajustes.set(chave, novo);
+  return novo;
+};
+const calcularAjuste = (bruto: string, o: OpcAjuste): Ajuste => {
   const texto = bruto.replace(/\s+/g, ' ').trim();
   const fsMin = Math.max(CORPO_MIN, o.fsMin ?? CORPO_MIN);
   const piso1 = Math.max(fsMin, o.piso1);

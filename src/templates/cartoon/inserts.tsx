@@ -57,11 +57,45 @@ export const normInsert = (v: unknown): Insert | undefined => {
 
 export const quadroDeEntrada = (ins: Insert, palavras: P[]) => quadroDaPalavraT(palavras, ins.palavra, 8);
 
+// ── caixa envolvente real do insert (FONTE ÚNICA para o encaixe: posInsert, em planos.tsx, usa só isto) ─────────────
+// Retângulo de cada desenho (x, y a 1080×1920, antes do encaixe) com tudo que aparece: celular com moldura, mão,
+// polegar, dedos e o balão de contador (só na tela whatsapp com contador > 0, com a pulsada de 7%); papel com a fita;
+// planilha. Depois, a rotação da Moldura (rot do tipo mais o balanço de até BALANCO graus em torno de 540,760).
+// Devolve o topo e a base em y; é o que o planejador precisa. O que mudar no desenho abaixo muda aqui.
+const ROT_TIPO = {celular: -3, papel: -3, planilha: 1.5} as const;
+const BALANCO = 0.9; // graus, amplitude de senoide(f, 64) na Moldura
+const caixaBruta = (ins: Insert): {x0: number; x1: number; y0: number; y1: number} => {
+  if (ins.tipo === 'papel') return {x0: 190, x1: 904, y0: 303, y1: 1184}; // 700 + 2×7 de borda; fita 34 acima do topo
+  if (ins.tipo === 'planilha') return {x0: 90, x1: 1006, y0: 340, y1: 340 + 16 + 180 + 76 * Math.max(1, (ins.linhas ?? []).length)};
+  const x0 = 540 - 250 + 20; // posição do celular em Celular()
+  const contador = (ins.tela ?? 'whatsapp') === 'whatsapp' && (ins.contador ?? 0) > 0;
+  return {
+    x0: x0 - 75, // mão e polegar à esquerda do aparelho
+    x1: x0 + 545, // aparelho (500 + 2×9 de borda) e dedos à direita (até x0 + 539)
+    y0: contador ? 310 - 46 - 5 : 310, // balão 116 + 2×7 de borda, subindo 46 acima do topo, pulsando 7%
+    y1: 1245, // base da mão
+  };
+};
+export const caixaDoInsert = (ins: Insert): {topo: number; base: number} => {
+  const b = caixaBruta(ins);
+  let topo = Infinity, base = -Infinity;
+  for (const g of [ROT_TIPO[ins.tipo] - BALANCO, ROT_TIPO[ins.tipo] + BALANCO]) {
+    const r = (g * Math.PI) / 180;
+    for (const x of [b.x0, b.x1]) for (const y of [b.y0, b.y1]) {
+      const yy = 760 + (x - 540) * Math.sin(r) + (y - 760) * Math.cos(r);
+      topo = Math.min(topo, yy); base = Math.max(base, yy);
+    }
+  }
+  return {topo, base};
+};
+
+// Entrada SÓ por escala (82% a 100%, em torno de 540,760, que está dentro da caixa de todo insert) e opacidade, sem
+// deslocamento vertical: a mola é limitada a 1, então em todo o caminho o insert fica dentro da caixa final que
+// caixaDoInsert devolveu e posInsert validou (fora da faixa da legenda, dentro de 270..1248). Nunca atravessa a legenda.
 const Moldura: React.FC<{f: number; fps: number; entra: number; rot: number; children: React.ReactNode}> = ({f, fps, entra, rot, children}) => {
-  const s = spring({frame: f - entra, fps, config: {damping: 14, stiffness: 110}});
-  const sai = 1;
+  const s = Math.min(1, spring({frame: f - entra, fps, config: {damping: 14, stiffness: 110}}));
   return (
-    <div style={{position: 'absolute', inset: 0, opacity: f >= entra ? 1 : 0, transform: `translateY(${(1 - s) * 1100}px) rotate(${rot + senoide(f, 64) * 0.9}deg) scale(${sai})`, transformOrigin: '540px 760px'}}>{children}</div>
+    <div style={{position: 'absolute', inset: 0, opacity: f >= entra ? Math.min(1, s * 2.5) : 0, transform: `rotate(${rot + senoide(f, 64) * BALANCO}deg) scale(${0.82 + 0.18 * s})`, transformOrigin: '540px 760px'}}>{children}</div>
   );
 };
 
@@ -78,7 +112,7 @@ const Celular: React.FC<{ins: Insert; f: number; fps: number; entra: number; cor
   const bn = banner ? suave((lf - 22) / 8) : 0;
   const pele = '#e6b28a';
   return (
-    <Moldura f={f} fps={fps} entra={entra} rot={-3}>
+    <Moldura f={f} fps={fps} entra={entra} rot={ROT_TIPO.celular}>
       <div style={{position: 'absolute', left: x0 + vib, top: y0, width: L, height: A, borderRadius: 78, background: '#101218', border: `9px solid ${PRETO}`, boxShadow: '0 40px 80px rgba(0,0,0,.55), inset 0 0 0 5px #2a2d38', overflow: 'hidden', fontFamily: FONTE_SORA}}>
         <div style={{position: 'absolute', inset: 14, borderRadius: 64, overflow: 'hidden', background: tela === 'extrato' ? '#f4f6f4' : '#f2f2ee'}}>
           <div style={{position: 'absolute', top: 12, left: '50%', width: 130, height: 34, marginLeft: -65, borderRadius: 20, background: '#0b0b0e', zIndex: 5}} />
@@ -157,7 +191,7 @@ const Papel: React.FC<{ins: Insert; f: number; fps: number; entra: number; cor: 
   const lf = f - entra;
   const W = 700, x0 = 540 - W / 2, y0 = 330;
   return (
-    <Moldura f={f} fps={fps} entra={entra} rot={-3}>
+    <Moldura f={f} fps={fps} entra={entra} rot={ROT_TIPO.papel}>
       <div style={{position: 'absolute', left: x0, top: y0, width: W, height: 840, background: 'linear-gradient(170deg,#f6eed8,#eadfc2)', border: `7px solid ${PRETO}`, borderRadius: 14, boxShadow: '0 40px 70px rgba(0,0,0,.5)', fontFamily: FONTE_SORA, padding: '60px 52px', boxSizing: 'border-box'}}>
         <div style={{position: 'absolute', left: '50%', top: -34, width: 190, height: 62, marginLeft: -95, background: 'rgba(238,200,90,.8)', border: `4px solid ${PRETO}`, transform: 'rotate(-3deg)'}} />
         {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => <div key={i} style={{position: 'absolute', left: 30, right: 30, top: 170 + i * 76, height: 2, background: 'rgba(60,90,160,.28)'}} />)}
@@ -186,7 +220,7 @@ const Planilha: React.FC<{ins: Insert; f: number; fps: number; entra: number; co
   const W = 900, x0 = 90, y0 = 340;
   const larg = (i: number) => (i === 0 ? '42%' : `${58 / Math.max(1, cols.length - 1)}%`);
   return (
-    <Moldura f={f} fps={fps} entra={entra} rot={1.5}>
+    <Moldura f={f} fps={fps} entra={entra} rot={ROT_TIPO.planilha}>
       <div style={{position: 'absolute', left: x0, top: y0, width: W, background: '#fbfcfb', border: `8px solid ${PRETO}`, borderRadius: 22, overflow: 'hidden', boxShadow: '0 40px 80px rgba(0,0,0,.5)', fontFamily: FONTE_SORA}}>
         <div style={{background: '#1f7a4c', color: '#fff', fontWeight: 700, fontSize: 36, padding: '22px 30px', display: 'flex', alignItems: 'center', gap: 14}}>
           <span style={{display: 'inline-block', width: 20, height: 20, borderRadius: 10, background: '#fff', opacity: 0.85}} />

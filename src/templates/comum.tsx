@@ -16,7 +16,7 @@ export type DadosT = {
   tempo: {duracao: number; cenas: {id: string; ini: number; fim: number}[]; palavras: {p: string; ini: number; fim: number}[]};
   personagens: string[];
   // manifesto de public/<projeto>/planos/ (render.mjs e a rota GET projeto do estúdio): arquivos que EXISTEM.
-  // Sem ele (undefined) a imagem é aceita sem conferir existência.
+  // Sem ele (ausente ou malformado) NENHUMA imagem é liberada: filme.json de mão precisa trazer `planos`.
   planos?: string[];
   semVoz?: boolean;
 };
@@ -101,20 +101,20 @@ export const cenasValidas = (dados: DadosT): CenaTempo[] =>
 
 // Imagem que o roteiro aponta (fundo gerado fora etc.): só dentro de public/<projeto>/<pasta>/, sem "..",
 // sem caminho absoluto e só com caracteres seguros. Devolve o staticFile ou null (o template usa o procedural).
-// `manifesto` (lista de caminhos relativos a <pasta>, quando existir) exige que o arquivo exista de verdade.
+// `manifesto` (lista de caminhos relativos a <pasta>) exige que o arquivo exista de verdade; se for passado e não for lista, nada passa.
 export const imagemDoProjeto = (projeto: string, pasta: string, arquivo: unknown, manifesto?: readonly string[]): string | null => {
   if (typeof arquivo !== 'string' || !/^[a-z0-9-]{1,80}$/i.test(projeto)) return null;
   const partes = arquivo.split('/');
   if (!partes.length || partes.some((p) => !p || p === '.' || p === '..' || !/^[\w.-]{1,120}$/.test(p))) return null;
   if (!/\.(png|jpe?g|webp)$/i.test(arquivo)) return null;
   const rel = partes.join('/');
-  if (manifesto && !manifesto.includes(rel)) return null;
+  if (manifesto !== undefined && !(Array.isArray(manifesto) && manifesto.includes(rel))) return null;
   return staticFile(`${projeto}/${pasta}/${rel}`);
 };
-// Imagem de public/<projeto>/planos/ que o template pode usar: caminho válido E (se há manifesto) existente.
+// Imagem de public/<projeto>/planos/ que o template pode usar: caminho válido E existente no manifesto (ausente = lista vazia).
 // É a única porta para decidir "modo imagem": o template nunca monta staticFile de plano por conta própria.
 export const planoDisponivel = (dados: DadosT, arquivo: unknown): string | null =>
-  imagemDoProjeto(dados.projeto, 'planos', arquivo, Array.isArray(dados.planos) ? dados.planos : undefined);
+  imagemDoProjeto(dados.projeto, 'planos', arquivo, lista<string>(dados.planos));
 
 export type InfoCena = {i: number; dur: number; ini: number; palavras: P[]; primeira: boolean; ultima: boolean};
 // cada cena numa Sequence, do começo da fala dela até a próxima (tempo.json do alinhar.mjs)
@@ -162,7 +162,7 @@ export type EstiloLegenda = {
   caixaAlta?: boolean;
   contorno?: string; // cor do contorno do texto (legível sobre qualquer fundo)
   centroY: number; // px; tem de ficar dentro da faixa útil
-  porBloco?: number; // palavras por bloco (quebra também na pontuação)
+  porBloco?: number; // palavras por bloco (a pontuação é preferência de corte, não fronteira)
   largura?: number; // px de largura máxima do bloco
 };
 // palavras que nunca terminam um bloco de legenda (artigos, preposições, contrações, conjunções e pronomes átonos), sem acento
@@ -170,46 +170,32 @@ const FRACAS = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'uns', 'umas', 'de', 
 const PONTUA = /[,.:;?!…]$/;
 const semAcento = (txt: string) => txt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
 const fraca = (txt: string) => !PONTUA.test(txt) && FRACAS.has(semAcento(txt));
-// Agrupa a fala em blocos de legenda. Restrições DURAS (só cedem se for impossível cumpri-las, ex.: fala de uma palavra):
-//  (a) nenhum bloco de 1 palavra; trecho de 1 palavra isolado pela pontuação ("Atenção!") se junta ao trecho seguinte
-//      (ou ao anterior, se for o último), atravessando a pontuação;
+// Agrupa a fala em blocos de legenda, otimizando a FALA INTEIRA (programação dinâmica sobre todos os cortes possíveis).
+// Restrições DURAS (custo de barreira; só cedem se for impossível cumpri-las, ex.: fala de uma palavra):
+//  (a) nenhum bloco de 1 palavra;
 //  (b) nenhum bloco termina em palavra fraca (lista FRACAS), salvo o último da fala;
 //  (c) bloco com no máximo `max + 1` palavras.
-// Dentro dessas restrições, quebra na pontuação sempre que possível e escolhe os cortes de menor custo (blocos parecidos).
+// A pontuação é PREFERÊNCIA de corte (bloco que atravessa pontuação custa mais), não fronteira: "Muito bem. Cheguei com a
+// minha mãe." sai [Muito bem. Cheguei] [com a minha mãe.], porque a divisão que respeita o ponto termina em "a".
+// Entre as divisões válidas escolhe a de menor custo (blocos de tamanho parecido, perto de `max`).
 export const blocosDeLegenda = <T extends {txt: string}>(tks: T[], max: number): T[][] => {
   const n = Math.max(1, Math.floor(max));
-  const trechos: T[][] = [[]];
-  tks.forEach((t) => { trechos[trechos.length - 1].push(t); if (PONTUA.test(t.txt)) trechos.push([]); });
-  // trecho de uma palavra só: junta ao seguinte; se for o último, ao anterior
-  const grupos: T[][] = [];
-  let carga: T[] = [];
-  trechos.filter((tr) => tr.length).forEach((tr) => {
-    const g = [...carga, ...tr];
-    carga = [];
-    if (tr.length === 1 && g.length === 1) carga = g; // ainda sozinho: espera o próximo
-    else grupos.push(g);
-  });
-  if (carga.length) { if (grupos.length) grupos[grupos.length - 1].push(...carga); else grupos.push(carga); }
+  const L = tks.length;
   const BARRA = 1e5;
-  const blocos: T[][] = [];
-  grupos.forEach((tr) => {
-    const L = tr.length;
-    // melhor[i] = menor custo para cobrir as i primeiras palavras; corte[i] = onde começa o último bloco
-    const melhor: number[] = [0];
-    const corte: number[] = [0];
-    for (let i = 1; i <= L; i++) {
-      melhor[i] = Infinity;
-      for (let tam = 1; tam <= n + 1 && tam <= i; tam++) {
-        const ini = i - tam;
-        const cruza = tr.slice(ini, i - 1).filter((t) => PONTUA.test(t.txt)).length; // bloco que atravessa pontuação
-        const custo = melhor[ini] + 10 + (n - tam) * (n - tam) + (tam > n ? 24 : 0) + cruza * 30 + (tam === 1 && L > 1 ? BARRA : 0) + (i < L && fraca(tr[i - 1].txt) ? BARRA : 0);
-        if (custo < melhor[i]) { melhor[i] = custo; corte[i] = ini; }
-      }
+  // melhor[i] = menor custo para cobrir as i primeiras palavras; corte[i] = onde começa o último bloco
+  const melhor: number[] = [0];
+  const corte: number[] = [0];
+  for (let i = 1; i <= L; i++) {
+    melhor[i] = Infinity;
+    for (let tam = 1; tam <= n + 1 && tam <= i; tam++) {
+      const ini = i - tam;
+      const cruza = tks.slice(ini, i - 1).filter((t) => PONTUA.test(t.txt)).length; // bloco que atravessa pontuação
+      const custo = melhor[ini] + 10 + (n - tam) * (n - tam) + (tam > n ? 24 : 0) + cruza * 30 + (tam === 1 && L > 1 ? BARRA : 0) + (i < L && fraca(tks[i - 1].txt) ? BARRA : 0);
+      if (custo < melhor[i]) { melhor[i] = custo; corte[i] = ini; }
     }
-    const partes: T[][] = [];
-    for (let i = L; i > 0; i = corte[i]) partes.unshift(tr.slice(corte[i], i));
-    partes.forEach((b) => blocos.push(b));
-  });
+  }
+  const blocos: T[][] = [];
+  for (let i = L; i > 0; i = corte[i]) blocos.unshift(tks.slice(corte[i], i));
   return blocos;
 };
 export const LegendaKaraoke: React.FC<{fala: string; palavras: P[]; estilo: EstiloLegenda}> = ({fala, palavras, estilo}) => {
@@ -297,20 +283,24 @@ export const segmentosDePlanos = <M extends string>(dados: DadosT, opc: {fps: nu
   return segs;
 };
 
-export type EventoSom = {f: number; som: string; vol?: number; prioridade?: number};
+// `ate` = quadro ABSOLUTO exclusivo até onde o evento vale (fim da cena ou do elemento que o som acompanha); depois de
+// deslocado pela folga, evento em f >= ate é descartado (o som nunca toca com o elemento já fora da tela).
+export type EventoSom = {f: number; som: string; vol?: number; prioridade?: number; ate?: number};
 export const agendaDeSons = <E extends EventoSom>(eventos: E[], opc: {folga?: number} = {}): E[] => {
   const folga = Math.max(1, Math.floor(opc.folga ?? 3));
   // maior prioridade primeiro (fica no quadro pedido); empate: o mais cedo, depois a ordem de entrada
   const ordem = eventos.map((e, k) => ({e, k, f: Math.max(0, Math.round(numero(e.f, 0)))})).sort((x, y) => (y.e.prioridade ?? 0) - (x.e.prioridade ?? 0) || x.f - y.f || x.k - y.k);
   const postos: number[] = [];
-  const saida = ordem.map(({e, f}) => {
+  const saida: E[] = [];
+  ordem.forEach(({e, f}) => {
     let q = f;
     for (let mudou = true; mudou; ) {
       mudou = false;
       for (const c of postos) if (Math.abs(q - c) < folga && c + folga > q) { q = c + folga; mudou = true; }
     }
+    if (typeof e.ate === 'number' && Number.isFinite(e.ate) && q >= e.ate) return; // expirou: não ocupa vaga
     postos.push(q);
-    return {...e, f: q};
+    saida.push({...e, f: q});
   });
   return saida.sort((x, y) => x.f - y.f);
 };

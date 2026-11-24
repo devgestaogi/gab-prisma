@@ -48,5 +48,5 @@ linguagem do vetor (palco quase parado, corte seco, gráficos com pop de mola).
   nesse modo (o balão aponta para o personagem só em x, então com personagem ele sai do eixo central); o impacto tem teto de 130 px de fonte.
 - Cenas com `plano` ou `layout` usam essa conta; as demais mantêm as posições antigas (a demo sem plano não muda).
 - Sons: toda entrada (título, selo, personagem, balão, objeto, contador, flash, mira, impacto, CTA, troca de cena) tem o seu, volumes de 0,3 a 0,5,
-  e a agenda do vídeo inteiro passa por `agendaDeSons` (`comum`, quadros absolutos, folga de 3): dois sons nunca ficam a menos de 3 quadros, mesmo na fronteira entre cenas. O planejamento (posição dos cartões, quadros das palavras, sons) é memorizado por `[dados, fps]` em `Vetor.tsx`.
+  e a agenda do vídeo inteiro passa por `agendaDeSons` (`comum`, quadros absolutos, folga de 3): dois sons nunca ficam a menos de 3 quadros, mesmo na fronteira entre cenas; cada evento leva `ate` (fim da cena) e é descartado se o deslocamento o levar para além dele. O planejamento (posição dos cartões, quadros das palavras, sons) é memorizado por `[dados, fps]` em `Vetor.tsx`.
 - O balão, no modo de posição calculada, usa `fixo`: `y` é a base do corpo e ele não aplica limite vertical próprio, para não se reposicionar depois de o planejador reservar o espaço (a escala da pilha vem de fora).

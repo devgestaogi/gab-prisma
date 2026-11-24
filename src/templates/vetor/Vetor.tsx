@@ -68,7 +68,8 @@ const planeja = (dados: PropsTemplate['dados'], fps: number, cenas: CenaRot[], t
       if (cena.cta) blocos.push({chave: 'cta', altura: alturaCta(cena.cta)});
     }
     porCena[i] = {comPlano: comPlano.has(i), modoPos, legY, pos: empilha(blocos, cena.layout?.cartao ?? 'meio', legY, cabecalho), topoSelo, seloRepete, q: qs};
-    const e = (f: number, som: string, vol: number, prioridade = 1): EventoSom => ({f: a + f, som, vol, prioridade});
+    // ate = fim da Sequence da cena: o som de um gráfico não vale depois que a cena (e o gráfico com ela) saiu
+    const e = (f: number, som: string, vol: number, prioridade = 1): EventoSom => ({f: a + f, som, vol, prioridade, ate: a + dur});
     if (i !== 0) evs.push(e(0, 'whoosh', 0.4, 0));
     if (i === 0 && temTitulo) evs.push(e(2, 'pop', 0.45));
     if (selo && !seloRepete) evs.push(e(2, 'pop', 0.5));

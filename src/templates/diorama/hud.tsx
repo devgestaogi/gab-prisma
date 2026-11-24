@@ -204,8 +204,11 @@ export const CartaoVidro: React.FC<{cartao: CartaoD; f0: number; palavras: Recor
   const visiveis = cartao.linhas.slice(0, pos.linhas); // quando falta espaço, as últimas linhas saem (layoutDasCenas)
   const n = visiveis.length;
   const alt = n > 3 ? 76 : 88;
+  // A entrada é só escala (94% → 100%, origem no topo) e opacidade, SEM deslocamento vertical, e a escala nunca passa de
+  // pos.escala (a mola é limitada a 1): em todo o caminho o cartão fica dentro da caixa final que layoutDasCenas validou
+  // (acima da legenda, abaixo da pilha), nunca invade a pilha do topo nem a faixa da legenda.
   return (
-    <div style={{position: 'absolute', left: 140, right: 140, top: pos.topo, transformOrigin: 'top center', transform: `translateY(${(1 - m) * 70}px) scale(${(0.94 + 0.06 * m) * pos.escala})`, opacity: Math.min(1, m * 1.8), padding: '26px 34px 18px', borderRadius: 30, background: 'rgba(16,16,18,0.80)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', border: BORDA, boxShadow: '0 24px 60px rgba(0,0,0,0.55)'}}>
+    <div style={{position: 'absolute', left: 140, right: 140, top: pos.topo, transformOrigin: 'top center', transform: `scale(${(0.94 + 0.06 * Math.min(1, m)) * pos.escala})`, opacity: Math.min(1, m * 1.8), padding: '26px 34px 18px', borderRadius: 30, background: 'rgba(16,16,18,0.80)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', border: BORDA, boxShadow: '0 24px 60px rgba(0,0,0,0.55)'}}>
       {cartao.titulo ? <div style={{fontFamily: FONTE_SORA, fontWeight: 600, fontSize: 22, letterSpacing: 2.4, color: '#9AA3AD', textTransform: 'uppercase', marginBottom: 12}}>{cartao.titulo}</div> : null}
       {visiveis.map((l, i) => {
         const fi = f0 + (palavras[i] ?? 10 + i * 9);

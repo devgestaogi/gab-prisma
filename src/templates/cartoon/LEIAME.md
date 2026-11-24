@@ -23,8 +23,8 @@ cenário com volume e luz de cinema). O template só anima por cima. Sem `plano`
 
 - `cena.plano: {imagem, movimento?: "push"|"dolly"|"plongee"|"pan", foco?: [x, y]}`. Imagem em
   `public/<projeto>/planos/`. A normalização, a herança e os segmentos são do mecanismo comum (`../comum`:
-  `normPlano`, `segmentosDePlanos`, `planoDisponivel`): só entra imagem que existe (manifesto `dados.planos`); inexistente
-  ou inválida = não conta. Cena sem `plano` herda o plano da anterior (a 1ª, o da próxima); se NENHUMA cena tem imagem
+  `normPlano`, `segmentosDePlanos`, `planoDisponivel`): só entra imagem que existe (manifesto `dados.planos`; manifesto ausente ou malformado = lista vazia, nenhuma
+  imagem; `filme.json` feito à mão precisa trazer `planos`); inexistente ou inválida = não conta. Cena sem `plano` herda o plano da anterior (a 1ª, o da próxima); se NENHUMA cena tem imagem
   válida, o vídeo todo segue o set 3D + personagens SVG. Com plano, a imagem substitui set 3D e personagens; `insert`
   continua por cima. `foco` (0..1, limitado a 0,1..0,9) é o alvo do push e o lado do dolly. Câmera sempre andando devagar e
   sempre cobrindo a tela, com respiração leve.
@@ -41,7 +41,11 @@ cenário com volume e luz de cinema). O template só anima por cima. Sem `plano`
   (e o som dele também). Cada passo é validado contra a zona da legenda (`posInsert`), tudo dentro de y 270..1248. Fora do
   modo planos o `layout` só age quando declarado.
 - Acabamento: vinheta, véu suave atrás da legenda, grão leve.
-- Sons: a agenda do vídeo inteiro sai de UMA chamada de `agendaDeSons` (`planejar` em `Cartoon.tsx`), em quadros
+- Encaixe do insert: `posInsert` (`planos.tsx`) usa a caixa envolvente REAL do desenho, `caixaDoInsert` (`inserts.tsx`):
+  celular com mão, polegar, dedos e balão do contador (só na tela whatsapp com contador > 0), mais a rotação da moldura e o
+  balanço de 0,9°. A entrada é só escala (82% a 100%, em torno de 540,760) e opacidade, sem deslocamento vertical e com a mola limitada a 1: em todo o caminho o insert fica dentro dessa caixa. Mudou o desenho do insert, mude a caixa lá: é a fonte única.
+- Sons: cada evento leva `ate` (fim da Sequence da cena); `agendaDeSons` descarta o evento que, depois de deslocado, cai em
+  `f >= ate` (o ding de uma notificação não toca na cena seguinte). A agenda do vídeo inteiro sai de UMA chamada de `agendaDeSons` (`planejar` em `Cartoon.tsx`), em quadros
   absolutos: whoosh do obstáculo (prioridade 2, fica no quadro do visual), pop na entrada do insert, toque e ding na
   notificação do celular, risco no papel e pop de entrada de personagem (prioridade 1, cedem para frente). Nunca dois
   a menos de 3 quadros um do outro. Volumes 0,35 a 0,5.

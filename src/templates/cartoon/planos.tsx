@@ -5,7 +5,7 @@
 import React from 'react';
 import {Img} from 'remotion';
 import {EventoSom, SegmentoPlano, objeto, umDe} from '../comum';
-import {Insert} from './inserts';
+import {Insert, caixaDoInsert} from './inserts';
 import {clamp, senoide, suave} from './util';
 
 export const MOVIMENTOS = ['push', 'dolly', 'plongee', 'pan'] as const;
@@ -35,11 +35,11 @@ const BANDA_INSERT: Record<Pos, [number, number]> = {alto: [380, 760], meio: [56
 const TOPO = 270, BASE = 1248;
 const METADE_LEGENDA = 92; // meia altura de um bloco de legenda (1 ou 2 linhas de 64 px) mais folga
 
-// medidas naturais de cada insert (topo e altura em y, a 1920) para encaixar na faixa pedida
+// medidas naturais do insert (topo e altura em y, a 1920): a caixa envolvente REAL do desenho, com contador, mão e
+// rotação, vinda de caixaDoInsert (inserts.tsx), a mesma fonte do que é desenhado
 const naturalDoInsert = (ins: Insert): {topo: number; alt: number} => {
-  if (ins.tipo === 'papel') return {topo: 330, alt: 840};
-  if (ins.tipo === 'planilha') return {topo: 340, alt: 180 + 76 * Math.max(1, (ins.linhas ?? []).length)};
-  return {topo: 310, alt: 930}; // celular com a mão
+  const c = caixaDoInsert(ins);
+  return {topo: c.topo, alt: c.base - c.topo};
 };
 
 // Onde o insert fica: translação e escala sobre o centro natural. A legenda sempre manda; o insert cede, nesta ordem:

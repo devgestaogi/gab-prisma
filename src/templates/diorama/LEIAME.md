@@ -36,7 +36,7 @@ O template é só a essência de imagem e motion; o conteúdo vem do assunto. Ca
 - Cena sem plano repete o anterior (ou o próximo, se for a primeira). Cenas seguidas com a mesma imagem são um
   segmento só: o movimento (o da primeira cena do segmento) continua sem emenda.
 - Tudo isso vem do mecanismo comum (`segmentosDePlanos`, `comum.tsx`): só entram cenas com tempo (cena ainda sem
-  alinhamento não conta, nem para decidir o modo) e só imagem que existe no manifesto `planos` do projeto. O diorama
+  alinhamento não conta, nem para decidir o modo) e só imagem que existe no manifesto `planos` do projeto (ausente ou malformado = nenhuma imagem). O diorama
   só acrescenta que o primeiro segmento começa no quadro 0.
 - Troca de segmento = voo através (~10 quadros): o que sai acelera a escala (x1,25), desfoca até 8 px e some; o que
   entra começa em 0,92 desfocado e assenta; som `whoosh` a 0,35. Câmera calculada pelo quadro absoluto.
@@ -83,9 +83,14 @@ novidade/item/lista, dinheiro/US$/R$/dólar/bilhão/milhão, alvo/mira, câmera,
 
 ## Som
 
+O cartão de vidro entra só com escala (94% a 100%, origem no topo, mola limitada a 1) e opacidade, sem deslocamento vertical:
+em todo o caminho da animação ele fica dentro da caixa que `layoutDasCenas` validou (nunca invade a pilha nem a legenda).
+`ajustarTexto` (`ajuste.ts`) memoriza o resultado completo (quebra, corpo, reticências) em cache de módulo de 200 entradas,
+zerado quando as fontes ficam prontas.
+
 Toda a agenda do vídeo é montada de uma vez (`planejar`, `Diorama.tsx`) e passa por `agendaDeSons` (`comum.tsx`), em quadros
 absolutos: pop no capítulo, no cartão e no CTA; apito no alerta; ding na correção; toque a cada troca do contador; whoosh
-no voo (ou na troca de plano); boom no carimbo. Volumes de 0,35 a 0,5. Dois efeitos a menos de 3 quadros um do outro nunca
+no voo (ou na troca de plano); boom no carimbo. Volumes de 0,35 a 0,5. Todo evento de cena leva `ate` (fim da cena): deslocado para além dele, é descartado. Dois efeitos a menos de 3 quadros um do outro nunca
 soam juntos: o de menor prioridade (boom > apito e ding > pops > toque e whoosh > pop de estação) vai para frente.
 
 ## Planejamento e fontes
