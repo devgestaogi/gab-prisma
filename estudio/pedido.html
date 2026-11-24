@@ -106,7 +106,8 @@
   // ── template de edição ──────────────────────────────────────────────────────
   // '' = o Claude escolhe pelo assunto; senão o nome da pasta em templates/
   // persistido = template gravado no pedido reaberto (pode ter saído da pasta depois: vira cartão indisponível)
-  let escolhido = '', lista = [], travado = false, persistido = null, carregou = false;
+  // falhou = a lista de templates não veio (erro), diferente de lista vazia: aí não dá para dizer que algo saiu da pasta
+  let escolhido = '', lista = [], travado = false, persistido = null, carregou = false, falhou = false;
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const cartao = (x) => `<button type="button" class="tpl" role="radio" data-nome="${esc(x.nome)}" title="${esc(x.resumo)}">
       <div class="capas">${(x.capas || []).map((c) => `<img src="${esc(c)}" alt="" loading="lazy">`).join('')}</div>
@@ -115,16 +116,20 @@
   const livre = `<button type="button" class="tpl" role="radio" data-nome=""><div class="capas livre">✦</div>
       <span class="selo livre">automático</span><b>O Claude escolhe</b><small>Pelo assunto, entre os templates prontos.</small></button>`;
   const indisponivel = (x) => `<button type="button" class="tpl" role="radio" data-nome="${esc(x.nome)}"><div class="capas livre">?</div>
-      <span class="selo receita">fora da pasta</span><b>${esc(x.titulo || x.nome)}</b><small>Template gravado neste pedido; não está mais na pasta de templates.</small></button>`;
+      <span class="selo ${falhou ? 'livre' : 'receita'}">${falhou ? 'deste pedido' : 'fora da pasta'}</span><b>${esc(x.titulo || x.nome)}</b>
+      <small>${falhou ? 'Template gravado neste pedido.' : 'Template gravado neste pedido; não está mais na pasta de templates.'}</small></button>`;
   function marcar() {
     $('templates').querySelectorAll('.tpl').forEach((e) => {
       const on = e.dataset.nome === escolhido;
       e.classList.toggle('on', on); e.setAttribute('aria-checked', String(on)); e.disabled = travado;
     });
     const x = lista.find((y) => y.nome === escolhido) || (persistido && persistido.nome === escolhido ? persistido : null);
-    $('aviso').textContent = x && x.status !== 'pronto'
-      ? 'Este template ainda é receita: o motor não faz esse estilo. O Claude avisa antes de começar e propõe construir o estilo ou usar o pronto mais parecido.'
-      : '';
+    $('aviso').textContent = falhou
+      ? (escolhido ? 'Não consegui ler a lista de templates agora; o pedido segue com o template escolhido nele.'
+                   : 'Não consegui ler a lista de templates; o pedido segue com "O Claude escolhe".')
+      : x && x.status !== 'pronto'
+        ? 'Este template ainda é receita: o motor não faz esse estilo. O Claude avisa antes de começar e propõe construir o estilo ou usar o pronto mais parecido.'
+        : '';
   }
   // redesenha os cartões com o que já chegou (lista e/ou pedido reaberto), em qualquer ordem de resposta
   function desenhar() {
@@ -140,7 +145,7 @@
     // seleção livre que sumiu da pasta volta para "o Claude escolhe"; a de pedido já enviado fica
     if (!travado && escolhido && !lista.some((y) => y.nome === escolhido)) escolhido = '';
     desenhar();
-  }).catch(() => { carregou = true; desenhar(); $('aviso').textContent = 'Não consegui ler os templates; o pedido segue com "O Claude escolhe".'; });
+  }).catch(() => { carregou = true; falhou = true; desenhar(); });
 
   b.onclick = async () => {
     $('erro').textContent = '';
