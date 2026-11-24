@@ -6,7 +6,8 @@ import {interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 import type {DadosT} from '../comum';
 import {FONTE_OSWALD, FONTE_SORA, cenasValidas, useDestaque} from '../comum';
 import {GAP_PILHA, VERDE, VERMELHO, cenasDe, topoDaPilha} from './tipos';
-import type {CartaoD, HudD} from './tipos';
+import type {CartaoD, CartaoPos, HudD} from './tipos';
+import {CORPO_MIN, LARG_PILHA, ajustarTexto, ajusteCapitulo, ajustePilula, medir, textoCapitulo} from './ajuste';
 
 const VIDRO = 'rgba(20,20,20,0.86)';
 const BORDA = '1px solid rgba(255,255,255,0.12)';
@@ -52,17 +53,6 @@ const duasLinhas = (s: string) => {
   return [p.slice(0, melhor).join(' '), p.slice(melhor).join(' ')];
 };
 
-// largura de um texto (px) com a fonte já carregada; sem canvas, estima
-let _g: CanvasRenderingContext2D | null | undefined;
-const medir = (texto: string, fonte: string, folgaPorLetra = 0.58): number => {
-  try {
-    if (_g === undefined) _g = document.createElement('canvas').getContext('2d');
-    if (_g) { _g.font = fonte; return _g.measureText(texto).width; }
-  } catch { /* sem canvas */ }
-  return texto.length * parseFloat(fonte.match(/(\d+)px/)?.[1] ?? '30') * folgaPorLetra;
-};
-const LARG_PILHA = 950; // 65..1015
-
 const fmt = (v: number, pre = '', suf = '') => `${pre}${Math.round(v).toLocaleString('pt-BR')}${suf}`;
 
 // ── HUD: contador que corre e freia forte no fim ──────────────────────────────────────────────────────────
@@ -103,10 +93,19 @@ export const Hud: React.FC<{dados: DadosT}> = ({dados}) => {
   // cabe nos 950 px da faixa útil: o número mais largo (inicial ou final) e o rótulo medidos com a fonte real
   const numMax = [s.de, s.hud.valor].reduce((a, v) => (fmt(v, s.hud.prefixo, s.hud.sufixo).length > a.length ? fmt(v, s.hud.prefixo, s.hud.sufixo) : a), '');
   const larguraNum = medir(numMax, `700 76px ${FONTE_SORA}`) - numMax.length;
-  // rótulo em duas linhas que nunca quebram: o corpo (24 a 19 px) encolhe até a linha mais larga caber em 230 px
+  // rótulo: duas linhas balanceadas que nunca quebram; o corpo (24 a 19 px) encolhe até a linha mais larga caber em 230 px.
+  // Texto longo demais para isso usa o espaço que sobra no HUD (950 px), com corpo até 18 px; se ainda não couber, reticências.
   const largura24 = Math.max(...linhas.map((l) => medir(l, `500 24px ${FONTE_SORA}`)));
-  const corpoRot = Math.max(19, Math.min(24, (24 * 230) / largura24));
-  const larguraRot = (largura24 * corpoRot) / 24;
+  let corpoRot = Math.min(24, (24 * 230) / largura24);
+  let linhasRot = linhas;
+  let larguraRot = (largura24 * Math.max(19, corpoRot)) / 24;
+  if (corpoRot < 19) {
+    const sobra = Math.max(160, LARG_PILHA - (16 + 76 + 22 + larguraNum + 22 + 36 + 2));
+    const a = ajustarTexto(s.hud.rotulo, {peso: 500, fsMax: 24, piso1: 19, fsMin: CORPO_MIN, largura: sobra});
+    linhasRot = a.linhas;
+    corpoRot = a.fs;
+    larguraRot = Math.max(...a.linhas.map((l) => medir(l, `500 ${a.fs}px ${FONTE_SORA}`)));
+  } else corpoRot = Math.max(19, corpoRot);
   const natural = 16 + 76 + 22 + larguraNum + 22 + larguraRot + 36 + 2;
   const ajuste = Math.min(1, LARG_PILHA / natural);
   return (
@@ -118,7 +117,7 @@ export const Hud: React.FC<{dados: DadosT}> = ({dados}) => {
           </div>
           <div style={{fontFamily: FONTE_SORA, fontWeight: 700, fontSize: 76, lineHeight: 1, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums', letterSpacing: -1}}>{fmt(valor, s.hud.prefixo, s.hud.sufixo)}</div>
           <div style={{fontFamily: FONTE_SORA, fontWeight: 500, fontSize: corpoRot, lineHeight: 1.18, color: '#B9BFC8', whiteSpace: 'nowrap'}}>
-            {linhas.map((l, n) => <div key={n}>{l}</div>)}
+            {linhasRot.map((l, n) => <div key={n}>{l}</div>)}
           </div>
         </div>
       </div>
@@ -142,15 +141,23 @@ export const Capitulo: React.FC<{dados: DadosT}> = ({dados}) => {
   if (k < 0) return null;
   const s = segs[k];
   const m = mola(Math.round((t - s.ini) * fps), fps, {damping: 15, stiffness: 190, mass: 0.6});
-  const partes = (s.c.capitulo ?? '').split('·').map((x) => x.trim());
-  const [a, b] = partes.length > 1 ? [partes[0], partes.slice(1).join(' · ')] : [partes[0], ''];
   const prog = s.c.progresso;
-  const larguraCap = medir(`${a}${b ? ` · ${b}` : ''}`, `700 30px ${FONTE_SORA}`) + 1.5 * (a.length + b.length + 3) + 80 + 2;
-  const ajuste = Math.min(1, LARG_PILHA / larguraCap);
+  const aj = ajusteCapitulo(textoCapitulo(s.c.capitulo ?? ''), !!prog); // medidas em cache (ajuste.ts), barato por quadro
+  // linhas já quebradas e cortadas pela medida; a parte depois do "·" leva a cor de destaque
+  let depois = false;
+  const linhas = aj.linhas.map((l, n) => {
+    let conteudo: React.ReactNode = l;
+    if (depois) conteudo = <span style={{color: destaque}}>{l}</span>;
+    else {
+      const p = l.indexOf('·');
+      if (p >= 0) { depois = true; conteudo = <>{l.slice(0, p).trimEnd()} <span style={{opacity: 0.6}}>·</span> <span style={{color: destaque}}>{l.slice(p + 1).trimStart()}</span></>; }
+    }
+    return <div key={n}>{conteudo}</div>;
+  });
   return (
-    <div style={{transform: `scale(${(0.8 + 0.2 * m) * ajuste})`, opacity: Math.min(1, m * 1.8)}}>
-      <div style={{padding: '16px 40px 18px', borderRadius: 40, background: VIDRO, border: BORDA, boxShadow: '0 10px 32px rgba(0,0,0,0.45)', textAlign: 'center', fontFamily: FONTE_SORA, fontWeight: 700, fontSize: 30, letterSpacing: 1.5, color: '#FFFFFF'}}>
-        <div>{a}{b ? <> <span style={{opacity: 0.6}}>·</span> <span style={{color: destaque}}>{b}</span></> : null}</div>
+    <div style={{transform: `scale(${0.8 + 0.2 * m})`, opacity: Math.min(1, m * 1.8)}}>
+      <div style={{padding: '16px 40px 18px', borderRadius: 40, background: VIDRO, border: BORDA, boxShadow: '0 10px 32px rgba(0,0,0,0.45)', textAlign: 'center', fontFamily: FONTE_SORA, fontWeight: 700, fontSize: aj.fs, lineHeight: `${aj.lh}px`, letterSpacing: 1.5, color: '#FFFFFF', maxWidth: LARG_PILHA, boxSizing: 'border-box'}}>
+        {linhas}
         {prog ? (
           <div style={{display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12}}>
             {Array.from({length: prog[1]}, (_, n) => <div key={n} style={{width: 44, height: 6, borderRadius: 3, background: n < prog[0] ? destaque : 'rgba(255,255,255,0.22)'}} />)}
@@ -170,10 +177,9 @@ export const Pilula: React.FC<{texto: string; tipo: 'alerta' | 'correcao' | 'cta
   if (f < f0) return null;
   const cor = tipo === 'alerta' ? VERMELHO : tipo === 'correcao' ? VERDE : destaque;
   const txt = tipo === 'alerta' ? '#FFFFFF' : '#0B0B0D';
-  // maior corpo (36 a 22 px) que deixa a pílula inteira em 950 px
+  // até 2 linhas, corpo de 36 a 18 px medido com a fonte real; o que ainda não couber é cortado com reticências
   const comIcone = tipo !== 'cta';
-  let tam = 36;
-  while (tam > 22 && 80 + (comIcone ? 56 : 0) + medir(texto, `700 ${tam}px ${FONTE_SORA}`) > LARG_PILHA) tam -= 2;
+  const aj = ajustePilula(texto, comIcone);
   const icone = tipo === 'alerta'
     ? <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={txt} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3.2l9.8 17H2.2z" /><path d="M12 10v4.6" /><path d="M12 17.6v.4" /></svg>
     : tipo === 'correcao'
@@ -181,8 +187,8 @@ export const Pilula: React.FC<{texto: string; tipo: 'alerta' | 'correcao' | 'cta
       : null;
   return (
     <div style={{transform: `translateY(${(1 - m) * 24}px) scale(${0.7 + 0.3 * m})`, opacity: Math.min(1, m * 2)}}>
-      <div style={{display: 'flex', alignItems: 'center', gap: 16, height: 92, padding: '0 40px', borderRadius: 999, background: cor, color: txt, fontFamily: FONTE_SORA, fontWeight: 700, fontSize: tam, boxShadow: `0 0 46px ${cor}66, 0 12px 30px rgba(0,0,0,0.45)`, maxWidth: LARG_PILHA, boxSizing: 'border-box', whiteSpace: 'nowrap'}}>
-        {icone}{texto}
+      <div style={{display: 'flex', alignItems: 'center', gap: 16, height: aj.alt, padding: '0 40px', borderRadius: 999, background: cor, color: txt, fontFamily: FONTE_SORA, fontWeight: 700, fontSize: aj.fs, boxShadow: `0 0 46px ${cor}66, 0 12px 30px rgba(0,0,0,0.45)`, maxWidth: LARG_PILHA, boxSizing: 'border-box', whiteSpace: 'nowrap'}}>
+        {icone}<div style={{lineHeight: `${Math.round(aj.fs * 1.15)}px`, textAlign: tipo === 'cta' ? 'center' : 'left'}}>{aj.linhas.map((l, n) => <div key={n}>{l}</div>)}</div>
       </div>
     </div>
   );
@@ -190,17 +196,18 @@ export const Pilula: React.FC<{texto: string; tipo: 'alerta' | 'correcao' | 'cta
 
 // ── cartão de vidro ──────────────────────────────────────────────────────────────────────────────────────
 const ETIQ = {ok: {t: 'OK', c: VERDE}, erro: {t: 'ERRO', c: VERMELHO}, neutro: {t: '', c: '#9AA3AD'}} as const;
-export const CartaoVidro: React.FC<{cartao: CartaoD; f0: number; palavras: Record<number, number>; topo: number}> = ({cartao, f0, palavras, topo}) => {
+export const CartaoVidro: React.FC<{cartao: CartaoD; f0: number; palavras: Record<number, number>; pos: CartaoPos}> = ({cartao, f0, palavras, pos}) => {
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
   const m = mola(f - f0, fps, {damping: 16, stiffness: 150, mass: 0.8});
   if (f < f0) return null;
-  const n = cartao.linhas.length;
+  const visiveis = cartao.linhas.slice(0, pos.linhas); // quando falta espaço, as últimas linhas saem (layoutDasCenas)
+  const n = visiveis.length;
   const alt = n > 3 ? 76 : 88;
   return (
-    <div style={{position: 'absolute', left: 140, right: 140, top: topo, transform: `translateY(${(1 - m) * 70}px) scale(${0.94 + 0.06 * m})`, opacity: Math.min(1, m * 1.8), padding: '26px 34px 18px', borderRadius: 30, background: 'rgba(16,16,18,0.80)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', border: BORDA, boxShadow: '0 24px 60px rgba(0,0,0,0.55)'}}>
+    <div style={{position: 'absolute', left: 140, right: 140, top: pos.topo, transformOrigin: 'top center', transform: `translateY(${(1 - m) * 70}px) scale(${(0.94 + 0.06 * m) * pos.escala})`, opacity: Math.min(1, m * 1.8), padding: '26px 34px 18px', borderRadius: 30, background: 'rgba(16,16,18,0.80)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', border: BORDA, boxShadow: '0 24px 60px rgba(0,0,0,0.55)'}}>
       {cartao.titulo ? <div style={{fontFamily: FONTE_SORA, fontWeight: 600, fontSize: 22, letterSpacing: 2.4, color: '#9AA3AD', textTransform: 'uppercase', marginBottom: 12}}>{cartao.titulo}</div> : null}
-      {cartao.linhas.map((l, i) => {
+      {visiveis.map((l, i) => {
         const fi = f0 + (palavras[i] ?? 10 + i * 9);
         const mi = mola(f - fi, fps, {damping: 15, stiffness: 220, mass: 0.6});
         const e = ETIQ[l.estado ?? 'neutro'];

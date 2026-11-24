@@ -113,7 +113,9 @@ const tomBorda = (c: string) => c;
 // ── balão de fala ou pensamento ────────────────────────────────────────────────────────────────────────────────
 // altura do corpo do balão (sem a cauda), igual à usada no desenho
 export const alturaBalao = (texto: string) => quebra(texto.toUpperCase(), 16).length * 42 + 38;
-export const Balao: React.FC<{b: BalaoRot; alvo: {x: number; y: number} | null; inicioQ: number}> = ({b, alvo, inicioQ}) => {
+// `fixo`: o chamador (pilha de cartões) já reservou o espaço e escala o balão por fora; aqui y é a base do corpo, sem limite
+// vertical próprio (um limite aplicado antes da escala do planejador reposicionaria o balão sobre o espaço de outro elemento)
+export const Balao: React.FC<{b: BalaoRot; alvo: {x: number; y: number} | null; inicioQ: number; fixo?: boolean}> = ({b, alvo, inicioQ, fixo}) => {
   const pop = usePop(inicioQ, 9, 240);
   const linhas = quebra(b.texto.toUpperCase(), 16);
   const maior = Math.max(1, ...linhas.map((l) => l.length));
@@ -125,7 +127,7 @@ export const Balao: React.FC<{b: BalaoRot; alvo: {x: number; y: number} | null; 
   const pensa = b.tipo === 'pensamento';
   const ax = alvo?.x ?? 540, ay = alvo?.y ?? 760;
   const cx = limita(b.x ?? ax, ZONA.lateral + w / 2 + 6, L - ZONA.lateral - w / 2 - 6);
-  const by = limita(b.y ?? ay - 60 - 56, ZONA.topo + h + 10, Math.max(ZONA.topo + h + 10, ZONA.base - 60)); // base do balão (a cauda desce ~56 px)
+  const by = fixo && b.y !== undefined ? b.y : limita(b.y ?? ay - 60 - 56, ZONA.topo + h + 10, Math.max(ZONA.topo + h + 10, ZONA.base - 60)); // base do balão (a cauda desce ~56 px)
   const topo = by - h;
   const baseTail = limita(ax, cx - w / 2 + 44, cx + w / 2 - 44);
   const s = limita(pop, 0, 1.12);

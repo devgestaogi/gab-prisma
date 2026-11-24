@@ -2,7 +2,7 @@
 // Junta roteiro + tempos da voz + personagens que existem em public/<projeto>/filme.json e renderiza.
 // --quadro N: só tira um print daquele quadro (para conferir sem renderizar tudo).
 import {execFileSync} from 'node:child_process';
-import {readFileSync, writeFileSync, readdirSync, existsSync} from 'node:fs';
+import {readFileSync, writeFileSync, readdirSync, existsSync, statSync} from 'node:fs';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -17,9 +17,12 @@ if (!existsSync(join(pub, 'tempo.json'))) throw new Error('falta tempo.json: rod
 const tempo = JSON.parse(readFileSync(join(pub, 'tempo.json'), 'utf8'));
 if (tempo.cenas.length !== roteiro.cenas.length) throw new Error('roteiro mudou depois do alinhamento: rode alinhar.mjs de novo');
 const personagens = existsSync(join(pub, 'personagens')) ? readdirSync(join(pub, 'personagens')).filter((f) => f.endsWith('.png')).map((f) => f.slice(0, -4)) : [];
+// manifesto das imagens de plano que existem (png/jpg/jpeg/webp, caminhos relativos a planos/, com subpasta se houver)
+const listarPlanos = (dir, pre = '') => (existsSync(dir) ? readdirSync(dir).sort().flatMap((f) => (statSync(join(dir, f)).isDirectory() ? listarPlanos(join(dir, f), `${pre}${f}/`) : /\.(png|jpe?g|webp)$/i.test(f) ? [`${pre}${f}`] : [])) : []);
+const planos = listarPlanos(join(pub, 'planos'));
 const faltam = [...new Set(roteiro.cenas.map((c) => c.personagem).filter((p) => p && !personagens.includes(p)))];
 if (faltam.length) console.log('⚠ personagens que faltam (a cena sai sem eles):', faltam.join(', '));
-writeFileSync(join(pub, 'filme.json'), JSON.stringify({projeto: roteiro.projeto, roteiro, tempo, personagens}));
+writeFileSync(join(pub, 'filme.json'), JSON.stringify({projeto: roteiro.projeto, roteiro, tempo, personagens, planos}));
 
 const props = JSON.stringify({projeto: roteiro.projeto});
 const npx = ['remotion'];

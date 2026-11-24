@@ -1,15 +1,17 @@
 // Template diorama-3d-hud: maquete 3D de brinquedo (estações, peões, câmera contínua) com HUD, pílulas,
 // cartão de vidro e carimbo por cima. Receita em DESIGN VIDEOS IA/templates/diorama-3d-hud/TEMPLATE.md.
-import React, {useEffect, useMemo, useState} from 'react';
-import {AbsoluteFill, Sequence, useDelayRender, useVideoConfig} from 'remotion';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {AbsoluteFill, Sequence, cancelRender, useDelayRender, useVideoConfig} from 'remotion';
 import {ThreeCanvas} from '@remotion/three';
-import {CorDestaque, Cenas, Fontes, FONTE_SORA, cenasValidas, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, destaqueDe, faixaUtil, marcaDe, palavrasDaCena, quadroDaPalavraT, useDestaque} from '../comum';
-import type {DadosT, EstiloLegenda, InfoCena, P} from '../comum';
+import {CorDestaque, Cenas, Fontes, FONTE_SORA, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, agendaDeSons, destaqueDe, faixaUtil, marcaDe, palavrasDaCena, quadroDaPalavraT, useDestaque} from '../comum';
+import type {DadosT, EstiloLegenda, EventoSom, InfoCena, P} from '../comum';
 import {Mundo} from './mundo';
 import {CartaoVidro, Carimbo, Pilula, PilhaTopo, segmentosHud} from './hud';
 import {temposDeVoo} from './camera';
-import {FUNDO, cenasDe, layoutDasCenas, revelacoes} from './tipos';
-import {Planos, modoImagem, trocasDePlanos} from './planos';
+import {FUNDO, layoutDasCenas, planejamentoDe, revelacoes} from './tipos';
+import {Planos, segmentosDoDiorama, trocasDePlanos} from './planos';
+import type {MarcaVeu, Segmento} from './planos';
+import {fontesProntas, medir} from './ajuste';
 import type {CenaDio, PosCena} from './tipos';
 
 // amarelo das referências: cor de destaque quando o vídeo não é da marca GI
@@ -17,24 +19,46 @@ export const PADRAO_LIVRE = '#FFC83D';
 
 const legendaCom = (destaque: string, centroY: number): EstiloLegenda => ({fonte: FONTE_SORA, peso: 600, tamanho: 52, cor: '#FFFFFF', destaque, modo: 'caixa', corNaCaixa: '#0B0B0D', centroY, porBloco: 4});
 
-// espera as fontes embutidas antes de desenhar as placas no canvas (e segura o render até lá).
-// O handle é sempre liberado: ao carregar, ao falhar, no limite de tempo ou se o componente desmontar antes.
+// Espera as fontes embutidas antes de desenhar qualquer coisa (as placas do canvas e as medidas de texto dependem delas).
+// Timeout NÃO significa "fonte carregada": se a Sora ou a Oswald não ficarem prontas no prazo, o render FALHA com erro
+// explícito (cancelRender), nunca segue com fonte substituta. As fontes são base64 embutido, então isso só acontece
+// se algo estiver muito errado. O handle é sempre liberado: ao carregar, ao falhar ou se o componente desmontar antes.
 const LIMITE_FONTES_MS = 8000;
+const AMOSTRA = 'Aa Çã é 0123456789';
+const FONTES_USADAS: [string, string][] = [['700', 'Sora'], ['600', 'Sora'], ['500', 'Sora'], ['700', 'Oswald']];
+// a fonte está de fato disponível quando a largura da amostra difere da das duas fontes de reserva (document.fonts.check
+// não é confiável no Chrome headless do render: devolveu false para a Oswald já carregada)
+const fonteDisponivel = (peso: string, familia: string) => {
+  const w = medir(AMOSTRA, `${peso} 64px '${familia}', serif`);
+  return Math.abs(w - medir(AMOSTRA, `${peso} 64px serif`)) > 0.5 && Math.abs(w - medir(AMOSTRA, `${peso} 64px sans-serif`)) > 0.5;
+};
 const useFontesProntas = () => {
   const {delayRender, continueRender} = useDelayRender();
   const [handle] = useState(() => delayRender('fontes do diorama'));
   const [ok, setOk] = useState(false);
+  const liberado = useRef(false);
+  // continueRender pode mudar de identidade a cada render: guardado em ref, para o efeito de carga rodar uma vez só
+  const continuar = useRef(continueRender);
+  continuar.current = continueRender;
+  const liberar = useCallback(() => { if (!liberado.current) { liberado.current = true; continuar.current(handle); } }, [handle]);
+  // o handle só é solto DEPOIS de o React ter desenhado o diorama com as fontes prontas (efeito pós-commit de ok)
+  useEffect(() => { if (ok) liberar(); }, [ok, liberar]);
   useEffect(() => {
     let vivo = true;
-    let liberado = false;
-    const liberar = () => { if (!liberado) { liberado = true; continueRender(handle); } };
-    const pronto = () => { if (vivo) setOk(true); liberar(); };
-    const limite = setTimeout(pronto, LIMITE_FONTES_MS);
-    Promise.all([document.fonts.load('700 64px Sora'), document.fonts.load('600 64px Sora'), document.fonts.load('700 64px Oswald')])
-      .catch(() => null)
-      .then(() => { clearTimeout(limite); pronto(); });
+    const falha = (motivo: string) => { if (vivo) { vivo = false; try { cancelRender(new Error(`diorama: fontes embutidas (Sora, Oswald) não ficaram prontas: ${motivo}`)); } finally { liberar(); } } };
+    const limite = setTimeout(() => falha(`sem resposta em ${LIMITE_FONTES_MS} ms`), LIMITE_FONTES_MS);
+    Promise.all(FONTES_USADAS.map(([p, fam]) => document.fonts.load(`${p} 64px ${fam}`, AMOSTRA)))
+      .then(() => {
+        clearTimeout(limite);
+        if (!vivo) return;
+        const faltam = FONTES_USADAS.filter(([p, fam]) => !fonteDisponivel(p, fam));
+        if (faltam.length) { falha(`não carregaram ${faltam.map(([p, fam]) => `${p} ${fam}`).join(', ')}`); return; }
+        fontesProntas(); // daqui em diante as medidas de texto valem (ajuste.ts)
+        setOk(true);
+      })
+      .catch((e) => { clearTimeout(limite); falha(String(e?.message ?? e)); });
     return () => { vivo = false; clearTimeout(limite); liberar(); };
-  }, [continueRender, handle]);
+  }, [liberar]);
   return ok;
 };
 
@@ -69,68 +93,62 @@ const CamadasCena: React.FC<{c: CenaDio; info: InfoCena; legenda: boolean; pos: 
   const t = temposDaCena(c, info.palavras, info.dur);
   return (
     <>
-      {c.cartao ? <CartaoVidro cartao={c.cartao} f0={t.cartao} palavras={Object.fromEntries(t.linhas.map((x, i) => [i, x]))} topo={pos.cartao} /> : null}
+      {c.cartao && pos.cartao ? <CartaoVidro cartao={c.cartao} f0={t.cartao} palavras={Object.fromEntries(t.linhas.map((x, i) => [i, x]))} pos={pos.cartao} /> : null}
       {c.carimbo ? <Carimbo texto={c.carimbo} f0={t.carimbo} /> : null}
       {legenda ? <LegendaKaraoke fala={c.fala} palavras={info.palavras} estilo={legendaCom(destaque, pos.legenda)} /> : null}
     </>
   );
 };
 
-// todos os efeitos sonoros do vídeo em quadros absolutos; dois efeitos a menos de 2 quadros um do outro nunca soam juntos:
-// o que vem depois é deslocado 3 quadros (volumes entre 0,25 e 0,5, sempre abaixo da voz)
-type Efeito = {som: string; f: number; vol: number};
-const planejarSons = (dados: DadosT, imagem: boolean, fps: number): Efeito[] => {
-  const cenas = cenasDe(dados);
-  const validas = cenasValidas(dados);
-  const lista: Efeito[] = [];
-  if (!imagem) revelacoes(dados).forEach((t) => lista.push({som: 'pop', f: Math.round(t * fps), vol: 0.4}));
-  (imagem ? trocasDePlanos(dados, fps) : temposDeVoo(dados).map((ini) => Math.round(ini * fps))).forEach((f) => lista.push({som: 'whoosh', f, vol: imagem ? 0.35 : 0.4}));
-  segmentosHud(dados).forEach((h) => lista.push({som: 'toque', f: Math.round(h.ini * fps), vol: 0.35}));
+// Todo o planejamento do vídeo numa conta só, memorizada por [dados, fps] (nunca refeita por quadro): segmentos do modo
+// imagem, posição por cena, nascimento das estações e a agenda de sons inteira em quadros absolutos.
+type Plano = {segs: Segmento[]; imagem: boolean; reveal: number[]; posicoes: PosCena[]; marcas: MarcaVeu[]; sons: EventoSom[]};
+const planejar = (dados: DadosT, fps: number): Plano => {
+  const {cenas, validas} = planejamentoDe(dados);
+  const segs = segmentosDoDiorama(dados, fps);
+  const imagem = segs.length > 0;
+  const reveal = imagem ? [] : revelacoes(dados);
+  const posicoes = layoutDasCenas(cenas);
+  const marcas = validas.map((t) => ({f: Math.round(t.ini * fps), c: posicoes[t.i]?.legenda ?? 1130}));
+  // prioridade decide quem fica no quadro pedido quando dois efeitos colidem (agendaDeSons empurra o de menor prioridade);
+  // folga de 3 quadros entre quaisquer dois; volumes de 0,25 a 0,5, sempre abaixo da voz
+  const ev: EventoSom[] = [];
+  if (!imagem) reveal.forEach((t) => ev.push({som: 'pop', f: Math.round(t * fps), vol: 0.4, prioridade: 1}));
+  (imagem ? trocasDePlanos(segs) : temposDeVoo(dados).map((ini) => Math.round(ini * fps))).forEach((f) => ev.push({som: 'whoosh', f, vol: imagem ? 0.35 : 0.4, prioridade: 2}));
+  segmentosHud(dados).forEach((h) => ev.push({som: 'toque', f: Math.round(h.ini * fps), vol: 0.35, prioridade: 2}));
   validas.forEach((x) => {
     const c = cenas[x.i];
     const from = Math.round(x.ini * fps);
     const dur = Math.max(1, Math.round(x.fim * fps) - from);
     const t = temposDaCena(c, palavrasDaCena(dados, x.i, fps), dur);
-    if (c.capitulo) lista.push({som: 'pop', f: Math.round((x.ini + 0.1) * fps), vol: 0.35});
-    if (c.alerta) lista.push({som: 'apito', f: from + t.alerta, vol: 0.42});
-    if (c.correcao) lista.push({som: 'ding', f: from + t.correcao, vol: 0.5});
-    if (c.cta) lista.push({som: 'pop', f: from + t.cta, vol: 0.45});
-    if (c.cartao) lista.push({som: 'pop', f: from + t.cartao, vol: 0.4});
-    if (c.carimbo) lista.push({som: 'boom', f: from + t.carimbo, vol: 0.5});
+    if (c.capitulo) ev.push({som: 'pop', f: Math.round((x.ini + 0.1) * fps), vol: 0.35, prioridade: 3});
+    if (c.alerta) ev.push({som: 'apito', f: from + t.alerta, vol: 0.42, prioridade: 4});
+    if (c.correcao) ev.push({som: 'ding', f: from + t.correcao, vol: 0.5, prioridade: 4});
+    if (c.cta) ev.push({som: 'pop', f: from + t.cta, vol: 0.45, prioridade: 3});
+    if (c.cartao) ev.push({som: 'pop', f: from + t.cartao, vol: 0.4, prioridade: 3});
+    if (c.carimbo) ev.push({som: 'boom', f: from + t.carimbo, vol: 0.5, prioridade: 5});
   });
-  const postos: Efeito[] = [];
-  lista.sort((a, b) => a.f - b.f).forEach((e) => {
-    const x = {...e, f: Math.max(0, e.f)};
-    for (let n = 0; n < 40; n++) {
-      const batida = postos.find((p) => Math.abs(p.f - x.f) < 2);
-      if (!batida) break;
-      x.f = batida.f + 3;
-    }
-    postos.push(x);
-  });
-  return postos;
+  return {segs, imagem, reveal, posicoes, marcas, sons: agendaDeSons(ev, {folga: 3})};
 };
 
 export const Diorama: React.FC<PropsTemplate> = ({dados}) => {
   const {fps, width, height} = useVideoConfig();
   const fontesOk = useFontesProntas();
   const cor = useMemo(() => destaqueDe(dados, PADRAO_LIVRE), [dados]);
-  const cenas = cenasDe(dados);
-  const validas = cenasValidas(dados);
-  const imagem = useMemo(() => modoImagem(dados), [dados]);
-  const reveal = useMemo(() => (imagem ? [] : revelacoes(dados)), [dados, imagem]);
-  const huds = useMemo(() => segmentosHud(dados), [dados]);
+  const {cenas, validas} = planejamentoDe(dados);
+  // as medidas de texto (layout das pílulas e do capítulo) só valem com as fontes prontas, por isso fontesOk entra na chave
+  const {segs, imagem, posicoes, marcas, sons} = useMemo(() => planejar(dados, fps), [dados, fps, fontesOk]); // eslint-disable-line react-hooks/exhaustive-deps
   const faixa = faixaUtil(width, height);
   const dur = Number.isFinite(dados.tempo?.duracao) ? dados.tempo.duracao : 0;
 
-  const sons = useMemo(() => planejarSons(dados, imagem, fps), [dados, imagem, fps]);
-  const posicoes = useMemo(() => layoutDasCenas(cenasDe(dados)), [dados]);
+  // sem fontes prontas nada é desenhado (as @font-face precisam estar no DOM para carregarem)
+  if (!fontesOk) return <AbsoluteFill style={{background: FUNDO}}><Fontes /></AbsoluteFill>;
 
   return (
     <CorDestaque.Provider value={cor}>
     <AbsoluteFill style={{background: FUNDO, fontFamily: FONTE_SORA}}>
       <Fontes />
-      {imagem ? <Planos dados={dados} /> : (
+      {imagem ? <Planos segs={segs} marcas={marcas} /> : (
         <>
           {fontesOk ? (
             <ThreeCanvas width={width} height={height} flat dpr={1} gl={{antialias: true}} camera={{fov: 40, near: 0.1, far: 220, position: [0, 20, 20]}}>

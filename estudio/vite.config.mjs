@@ -3,7 +3,7 @@
 import {defineConfig} from 'vite';
 import react from '@vitejs/plugin-react';
 import {spawn, execFileSync} from 'node:child_process';
-import {readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, copyFileSync, unlinkSync} from 'node:fs';
+import {readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, copyFileSync, unlinkSync, statSync} from 'node:fs';
 import {join, resolve, dirname, extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -42,6 +42,8 @@ function listarTemplates() {
 const agentes = {};
 let seq = 0;
 const registro = [];
+// manifesto das imagens de plano que existem em public/<projeto>/planos (igual ao de ferramentas/render.mjs)
+const listarPlanos = (dir, pre = '') => (existsSync(dir) ? readdirSync(dir).sort().flatMap((f) => (statSync(join(dir, f)).isDirectory() ? listarPlanos(join(dir, f), `${pre}${f}/`) : /\.(png|jpe?g|webp)$/i.test(f) ? [`${pre}${f}`] : [])) : []);
 const filas = {}; // ações do modo ao vivo, por projeto
 const donos = {};
 const janela = {url: '', seq: 0, visto: 0}; // só a última aba aberta do estúdio executa as ações
@@ -99,7 +101,7 @@ function api() {
             const tempo = existsSync(join(pub, 'tempo.json')) ? lerJSON(join(pub, 'tempo.json')) : null;
             const personagens = existsSync(join(pub, 'personagens')) ? readdirSync(join(pub, 'personagens')).filter((f) => f.endsWith('.png')).map((f) => f.slice(0, -4)) : [];
             const sons = readdirSync(join(RAIZ, 'public/sons')).filter((f) => f.endsWith('.wav')).map((f) => f.slice(0, -4));
-            return json(res, {roteiro: r, tempo, personagens, sons, ondas: ondas(r.projeto)});
+            return json(res, {roteiro: r, tempo, personagens, planos: listarPlanos(join(pub, 'planos')), sons, ondas: ondas(r.projeto)});
           }
           if (rota === 'projeto' && req.method === 'PUT') {
             const r = JSON.parse((await corpo(req)).toString());

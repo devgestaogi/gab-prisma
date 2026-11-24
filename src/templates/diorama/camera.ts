@@ -1,8 +1,7 @@
 // Câmera contínua: nunca corta. Cada cena tem uma pose; na troca a câmera voa até a pose nova (~0,9 s) com easing.
 import {Easing} from 'remotion';
-import {cenasValidas} from '../comum';
 import type {CenaTempo, DadosT} from '../comum';
-import {ESPACO, cenasDe, estacoesDe, idxEstacao, normCena, zEstacao} from './tipos';
+import {ESPACO, idxEstacao, normCena, planejamentoDe, zEstacao} from './tipos';
 import type {CenaDio} from './tipos';
 
 export type V3 = [number, number, number];
@@ -20,7 +19,7 @@ const orbita = (alvo: V3, dist: number, inclinacao: number, giro: number): Pose 
 });
 
 export const poseDaCena = (d: DadosT, c: CenaDio): Pose => {
-  const est = estacoesDe(d);
+  const {est} = planejamentoDe(d);
   const k = idxEstacao(est, c.foco);
   const comprimento = Math.max(0, est.length - 1) * ESPACO;
   if (k < 0) return orbita([0, 0, -comprimento / 2 - 3.5], 18 + comprimento * 0.9, 60, -10);
@@ -50,13 +49,13 @@ const poseVoo = (d: DadosT, v: CenaTempo[], cs: CenaDio[], k: number, t: number)
 };
 
 export const poseNoTempo = (d: DadosT, t: number): Pose => {
-  const v = cenasValidas(d);
+  const {validas: v, cenas} = planejamentoDe(d);
   let base: Pose;
   if (!v.length) base = poseDaCena(d, normCena({})); // palco vazio: visão geral
   else {
     let k = 0;
     v.forEach((c, j) => { if (c.ini <= t + 1e-6) k = j; });
-    base = poseVoo(d, v, cenasDe(d), k, t);
+    base = poseVoo(d, v, cenas, k, t);
   }
   // respiração: a câmera nunca fica parada
   const r = Math.sin(t * 0.55) * 0.22;
@@ -65,8 +64,7 @@ export const poseNoTempo = (d: DadosT, t: number): Pose => {
 
 // instantes (s) em que a câmera voa de verdade (pose diferente da cena válida anterior)
 export const temposDeVoo = (d: DadosT): number[] => {
-  const v = cenasValidas(d);
-  const cs = cenasDe(d);
+  const {validas: v, cenas: cs} = planejamentoDe(d);
   return v.filter((c, k) => {
     if (k === 0) return false;
     const a = poseDaCena(d, cs[v[k - 1].i]);

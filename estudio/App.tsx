@@ -65,7 +65,7 @@ const estimarTempo = (cenas: Cena[]) => {
   return {duracao: Math.max(t, 2), cenas: cs, palavras: []};
 };
 
-type Proj = {roteiro: any; tempo: any; personagens: string[]; sons: string[]; ondas: number[]};
+type Proj = {roteiro: any; tempo: any; personagens: string[]; planos?: string[]; sons: string[]; ondas: number[]};
 
 export const App: React.FC = () => {
   const [proj, setProj] = useState<Proj | null>(null);
@@ -171,7 +171,7 @@ export const App: React.FC = () => {
     // (sem isso o player só nascia na 1ª cena, parado em 0,8 s, e no fim tudo "voltava ao começo" — 23/11)
     if (!proj || (!nCenas && !temVoz)) return null;
     const tempo = alinhado ? proj.tempo : temVoz ? {...proj.tempo, cenas: proj.tempo.cenas.slice(0, nCenas)} : estimarTempo(proj.roteiro.cenas);
-    return {projeto: proj.roteiro.projeto, roteiro: proj.roteiro, tempo, personagens: proj.personagens, semVoz: !alinhado && !temVoz};
+    return {projeto: proj.roteiro.projeto, roteiro: proj.roteiro, tempo, personagens: proj.personagens, planos: proj.planos, semVoz: !alinhado && !temVoz};
   }, [proj, alinhado, temVoz, nCenas]);
   const durFrames = dados ? Math.max(1, Math.ceil(dados.tempo.duracao * fps)) : 1;
 

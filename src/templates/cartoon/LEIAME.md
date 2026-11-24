@@ -22,16 +22,27 @@ O conteúdo da cena pode ser uma imagem gerada do assunto no estilo do template 
 cenário com volume e luz de cinema). O template só anima por cima. Sem `plano` a cena segue o set 3D + personagens SVG.
 
 - `cena.plano: {imagem, movimento?: "push"|"dolly"|"plongee"|"pan", foco?: [x, y]}`. Imagem em
-  `public/<projeto>/planos/` (`imagemDoProjeto`); ausente ou inválida = sem plano. Com plano, a imagem substitui set 3D e
-  personagens; `insert` continua por cima. `foco` (0..1) é o alvo do push e o lado do dolly. Câmera sempre andando
-  devagar e sempre cobrindo a tela, com respiração leve.
+  `public/<projeto>/planos/`. A normalização, a herança e os segmentos são do mecanismo comum (`../comum`:
+  `normPlano`, `segmentosDePlanos`, `planoDisponivel`): só entra imagem que existe (manifesto `dados.planos`); inexistente
+  ou inválida = não conta. Cena sem `plano` herda o plano da anterior (a 1ª, o da próxima); se NENHUMA cena tem imagem
+  válida, o vídeo todo segue o set 3D + personagens SVG. Com plano, a imagem substitui set 3D e personagens; `insert`
+  continua por cima. `foco` (0..1, limitado a 0,1..0,9) é o alvo do push e o lado do dolly. Câmera sempre andando devagar e
+  sempre cobrindo a tela, com respiração leve.
 - `cena.transicao`: entre planos diferentes o padrão é o obstáculo `parede` (forma escura com borda iluminada cruza em 8
   quadros, whoosh baixo). `"corte"` = corte seco. `"obstaculo"` ou `{tipo:"obstaculo", objeto}` escolhe o objeto
-  (`parede` no modo planos). Cenas seguidas com a mesma imagem e sem `transicao` formam um segmento só: sem obstáculo e com a câmera contínua (movimento e foco da primeira cena, tempo pelo quadro absoluto no segmento inteiro). `transicao` explícita encerra o segmento e recomeça a câmera.
+  (`parede` no modo planos). Cenas seguidas com a mesma imagem e sem `transicao` formam um segmento só: sem obstáculo e com
+  a câmera contínua (movimento e foco da primeira cena, tempo pelo quadro absoluto no segmento inteiro). `transicao`
+  explícita encerra o segmento e recomeça a câmera. A imagem de cada segmento é uma camada montada UMA vez, fora das
+  `Sequence`s de cena (`CamadaPlano` em `Cartoon.tsx`): a fronteira entre cenas do mesmo segmento não remonta o `Img`.
 - `cena.layout: {legenda?: "alto"|"meio"|"baixo", insert?: "alto"|"meio"|"baixo"}`: legenda com centro em 600, 1000
-  (padrão) ou 1150; insert na faixa 380..760, 560..1000 (padrão) ou 760..1200, encolhido para caber (mínimo 55%).
-  Legenda e insert nunca se sobrepõem: o insert cede. Tudo dentro de y 270..1248. Fora do modo planos o `layout` só age
-  quando declarado.
-- Acabamento: vinheta, véu suave atrás da legenda, grão leve. Sons: pop na entrada do insert, toque e ding na notificação
-  do celular, risco no papel, whoosh no obstáculo, volumes 0,35 a 0,45, nunca dois no mesmo quadro (afastados 3 quadros;
-  o whoosh se afasta dos sons das cenas).
+  (padrão) ou 1150; insert na faixa 380..760, 560..1000 (padrão) ou 760..1200. A legenda manda e o insert cede, nesta
+  ordem: faixa pedida; a outra região livre (acima ou abaixo da legenda) na mesma escala; só então reduz a escala (piso de
+  45%) na região onde ela fica maior; se nem 45% cabe, fica menor no canto livre (piso de 25%); se nem isso, o insert some
+  (e o som dele também). Cada passo é validado contra a zona da legenda (`posInsert`), tudo dentro de y 270..1248. Fora do
+  modo planos o `layout` só age quando declarado.
+- Acabamento: vinheta, véu suave atrás da legenda, grão leve.
+- Sons: a agenda do vídeo inteiro sai de UMA chamada de `agendaDeSons` (`planejar` em `Cartoon.tsx`), em quadros
+  absolutos: whoosh do obstáculo (prioridade 2, fica no quadro do visual), pop na entrada do insert, toque e ding na
+  notificação do celular, risco no papel e pop de entrada de personagem (prioridade 1, cedem para frente). Nunca dois
+  a menos de 3 quadros um do outro. Volumes 0,35 a 0,5.
+- Todo o planejamento (segmentos, fronteiras, agenda) é puro e memorizado por `[dados, fps]` (`planejar`).

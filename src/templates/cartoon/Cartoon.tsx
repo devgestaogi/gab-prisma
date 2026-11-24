@@ -2,14 +2,14 @@
 // com profundidade de campo fingida (blur no fundo), câmera que nunca para, vinheta, grão, inserts de
 // objeto-prova e transição por obstáculo. Tudo determinístico por quadro. Veja LEIAME.md na pasta.
 import React from 'react';
-import {AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {Cenas, EstiloLegenda, FONTE_SORA, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, PropsTemplate, Som, cenasValidas, destaqueDe, faixaUtil, imagemDoProjeto, numero, objeto, palavrasDaCena, quadroDaPalavraT, texto, umDe} from '../comum';
+import {AbsoluteFill, Img, Sequence, useCurrentFrame, useVideoConfig} from 'remotion';
+import {Cenas, EstiloLegenda, EventoSom, FONTE_SORA, Fontes, InfoCena, LegendaKaraoke, LogoGI, Narracao, P, PropsTemplate, SegmentoPlano, Som, agendaDeSons, cenasValidas, destaqueDe, faixaUtil, imagemDoProjeto, numero, objeto, palavrasDaCena, quadroDaPalavraT, segmentosDePlanos, texto, umDe} from '../comum';
 import {BASES, Cam, Cenario3D, CenarioProps, CenarioTipo, Hora, V3} from './set3d';
 import {Luz, Personagem, PersonagemRot, normPersonagens} from './personagens';
 import {Insert, InsertView, normInsert, quadroDeEntrada} from './inserts';
 import {graoDataUrl} from './texturas';
 import {clamp, lerp, senoide, suave} from './util';
-import {AcabamentoPlano, LEGENDA_Y, Layout, Plano, PlanoImagem, Segmento, SomF, normLayout, normPlano, posInsert, segmentosDePlanos, sonsDoInsert} from './planos';
+import {AcabamentoPlano, LEGENDA_Y, Layout, Mov, PlanoImagem, SEGMENTOS, normLayout, posInsert, sonsDoInsert} from './planos';
 
 type CameraRot = {tipo: 'push' | 'dolly' | 'plongee' | 'pan'; intensidade: number; pos?: V3; alvo?: V3};
 type ObjetoObstaculo = 'pessoa' | 'porta' | 'celular' | 'parede';
@@ -17,7 +17,7 @@ type CenaRot = {
   id: string; fala: string;
   cenario: {tipo: CenarioTipo; hora: Hora; luz: 'quente' | 'fria'; quadro: boolean; placa?: string; imagem: string | null};
   camera: CameraRot; foco: number; personagens: PersonagemRot[]; insert?: Insert; transicao: ObjetoObstaculo | null;
-  plano: Plano | null; layout: Layout;
+  layout: Layout;
 };
 
 // ── normalização: a cena chega de agente ou de montagem ao vivo (pode faltar campo ou vir com tipo errado) ─────────
@@ -30,17 +30,15 @@ export const normTransicao = (v: unknown): ObjetoObstaculo | null => {
   return null;
 };
 // Entre planos de imagem o obstáculo é o padrão ("corte" faz corte seco): borda de parede em primeiro plano.
-// Mesma imagem em cenas seguidas não troca de plano, então o padrão aí é não ter obstáculo. Sem plano em nenhuma das
-// duas pontas, vale a regra antiga (só obstáculo declarado).
-export const transicaoDaCena = (cena: any, anterior: any, projeto: string): ObjetoObstaculo | null => {
-  const plano = normPlano(objeto(cena).plano, projeto);
-  const antes = anterior ? normPlano(objeto(anterior).plano, projeto) : null;
-  if (!plano && !antes) return normTransicao(objeto(cena).transicao);
+// Cenas do mesmo segmento (mesma imagem, sem `transicao` explícita) não trocam de plano: aí o padrão é não ter obstáculo.
+// Sem modo planos no vídeo, vale a regra antiga (só obstáculo declarado).
+export const transicaoDaCena = (cena: any, modoPlanos: boolean, mesmoSegmento: boolean): ObjetoObstaculo | null => {
+  if (!modoPlanos) return normTransicao(objeto(cena).transicao);
   const tr = objeto(cena).transicao;
   if (tr === 'corte' || objeto(tr).tipo === 'corte') return null;
   if (tr === 'obstaculo') return 'parede';
   if (objeto(tr).tipo === 'obstaculo') return umDe(objeto(tr).objeto, ['pessoa', 'porta', 'celular', 'parede'] as const, 'parede');
-  return plano && antes && plano.src === antes.src ? null : 'parede';
+  return mesmoSegmento ? null : 'parede';
 };
 const normCena = (c: unknown, projeto: string): CenaRot => {
   const o = objeto(c);
@@ -63,16 +61,33 @@ const normCena = (c: unknown, projeto: string): CenaRot => {
     personagens: normPersonagens(o.personagens),
     insert: normInsert(o.insert),
     transicao: normTransicao(o.transicao),
-    plano: normPlano(o.plano, projeto),
     layout: normLayout(o.layout),
   };
 };
 
-// sons de entrada da cena no modo planos: um por entrada, sem dois no mesmo quadro (quadros relativos à cena)
-const sonsDaCena = (cena: CenaRot, palavras: InfoCena['palavras']): SomF[] =>
-  cena.plano && cena.insert ? sonsDoInsert(cena.insert, quadroDeEntrada(cena.insert, palavras)) : [];
-
+const quadroEntra = (p: PersonagemRot, i: number, palavras: P[]) => {
+  const e = typeof p.entra === 'object' ? p.entra : undefined;
+  return e?.f ?? quadroDaPalavraT(palavras, e?.palavra, 6 + i * 7);
+};
 const LEGENDA: EstiloLegenda = {fonte: FONTE_SORA, peso: 700, tamanho: 64, cor: '#FFFFFF', destaque: '#FFFFFF', modo: 'cor', contorno: '#000000', centroY: 1000, porBloco: 3};
+
+// legenda e insert da cena: no modo planos o insert sempre se encaixa na faixa (cedendo à legenda, ou some se não couber);
+// no modo antigo só se o roteiro pediu. `ins` é o insert que realmente aparece.
+const layoutDaCena = (cena: CenaRot, planos: boolean) => {
+  const lay = cena.layout;
+  const lg = lay.legendaExplicita ? {...LEGENDA, centroY: LEGENDA_Y[lay.legenda]} : LEGENDA;
+  const pi = cena.insert && (planos || lay.insertExplicito) ? posInsert(cena.insert, lay.insert, lg.centroY) : null;
+  const ins = pi?.oculto ? undefined : cena.insert;
+  return {lg, pi: ins ? pi : null, ins};
+};
+// eventos de som de uma cena em quadros ABSOLUTOS (a cena começa em iniAbs); tudo vai para um agendaDeSons só
+const eventosDaCena = (cena: CenaRot, palavras: P[], iniAbs: number, planos: boolean): EventoSom[] => {
+  const ev: EventoSom[] = [];
+  if (!planos) cena.personagens.forEach((p, i) => { if (p.entra) ev.push({f: quadroEntra(p, i, palavras), som: 'pop', vol: 0.5, prioridade: 1}); });
+  const {ins} = layoutDaCena(cena, planos);
+  if (ins) ev.push(...sonsDoInsert(ins, quadroDeEntrada(ins, palavras), planos).map((e) => ({...e, prioridade: 1})));
+  return ev.map((e) => ({...e, f: iniAbs + e.f}));
+};
 
 // ── luz de cada cenário: usada nos personagens 2D, no grading e no brilho da fonte de luz ───────────────────────
 type Preset = {luz: Luz; glow: {x: number; y: number; cor: string; r: number}; tint: string; blend: string; escuro: number};
@@ -151,8 +166,8 @@ const PrimeiroPlano: React.FC<{tipo: CenarioTipo; dx: number; f: number}> = ({ti
 };
 
 // ── uma cena ────────────────────────────────────────────────────────────────────────────────────────────────
-const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: number; H: number; cor: string; seg?: Segmento}> = ({cena: cenaBruta, info, projeto, W, H, cor, seg}) => {
-  const cena = normCena(cenaBruta, projeto);
+const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: number; H: number; cor: string; planos: boolean}> = ({cena: cenaBruta, info, projeto, W, H, cor, planos}) => {
+  const cena = React.useMemo(() => normCena(cenaBruta, projeto), [cenaBruta, projeto]);
   const f = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = clamp(f / Math.max(1, info.dur - 1));
@@ -162,38 +177,29 @@ const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: 
   const hora: Hora = cen.hora;
   const pre = presetDe(tipoCen, hora, cen.luz === 'fria');
   const {cam, par} = calcCamera(tipoCen, cena.camera, t, f);
-  const ins = cena.insert;
+  const lay = layoutDaCena(cena, planos);
+  const ins = lay.ins;
   const entraIns = ins ? quadroDeEntrada(ins, info.palavras) : 0;
   const foco = cena.foco;
   const blur = 2 + foco * 5 + (ins ? 3 * suave((f - entraIns) / 10) : 0);
   const chars = cena.personagens;
-  const quadroEntra = (p: PersonagemRot, i: number) => {
-    const e = typeof p.entra === 'object' ? p.entra : undefined;
-    return e?.f ?? quadroDaPalavraT(info.palavras, e?.palavra, 6 + i * 7);
-  };
-  const fAbs = Math.round(info.ini * fps) + f; // quadro absoluto: o segmento de plano continua entre cenas
-  const lay = cena.layout;
-  const legY = LEGENDA_Y[lay.legenda];
-  const lg = lay.legendaExplicita ? {...LEGENDA, centroY: legY} : LEGENDA;
-  // posição do insert: no modo planos sempre encaixada na faixa (cedendo à legenda); no modo antigo só se o roteiro pediu
-  const pi = ins && (cena.plano || lay.insertExplicito) ? posInsert(ins, lay.insert, lg.centroY) : null;
+  const lg = lay.lg;
+  const pi = lay.pi;
   const insertView = ins && (
     <div style={{position: 'absolute', inset: 0, transformOrigin: pi ? `540px ${pi.cy}px` : undefined, transform: pi ? `translateY(${pi.dy.toFixed(1)}px) scale(${pi.s.toFixed(3)})` : undefined}}>
       <InsertView ins={ins} f={f} fps={fps} palavras={info.palavras} cor={cor} />
     </div>
   );
-  if (cena.plano) {
-    // modo planos: a imagem gerada do assunto no lugar do set 3D e dos personagens; câmera lenta por cima
+  if (planos) {
+    // modo planos: a imagem (câmera) é uma camada por segmento montada fora das cenas (ver Cartoon); aqui só o acabamento
     return (
-      <AbsoluteFill style={{background: '#050608', overflow: 'hidden'}}>
-        <PlanoImagem plano={seg?.plano ?? cena.plano} t={seg ? clamp((fAbs - seg.iniF) / Math.max(1, seg.fimF - seg.iniF - 1)) : t} f={seg ? fAbs : f} />
+      <AbsoluteFill style={{overflow: 'hidden'}}>
         {ins && <div style={{position: 'absolute', inset: 0, background: 'rgba(3,5,14,.22)', opacity: suave((f - entraIns) / 10)}} />}
         <AcabamentoPlano legendaY={lg.centroY} />
         <div style={{position: 'absolute', inset: 0, backgroundImage: `url(${graoDataUrl()})`, backgroundSize: '256px', backgroundPosition: `${(f * 37) % 256}px ${(f * 91) % 256}px`, opacity: 0.05, mixBlendMode: 'overlay'}} />
         {insertView}
         <style>{'.lgc>div>span{margin:0 0.1em}'}</style>
         <div className="lgc"><LegendaKaraoke fala={cena.fala} palavras={info.palavras} estilo={lg} /></div>
-        {sonsDaCena(cena, info.palavras).map((s, i) => <Som key={i} som={s.som} f={s.f} vol={s.vol} />)}
       </AbsoluteFill>
     );
   }
@@ -215,7 +221,7 @@ const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: 
       <div style={{position: 'absolute', inset: 0, background: `rgba(2,4,12,${pre.escuro})`}} />
       {/* personagens 2D: nítidos na frente, com paralaxe contrária à câmera */}
       <AbsoluteFill style={{transform: ins ? `scale(0.96)` : undefined, opacity: ins ? 1 - 0.55 * suave((f - entraIns) / 10) : 1}}>
-        {chars.map((p, i) => <Personagem key={i} p={p} f={f} fps={fps} entraF={quadroEntra(p, i)} idx={i} luz={pre.luz} par={par} />)}
+        {chars.map((p, i) => <Personagem key={i} p={p} f={f} fps={fps} entraF={quadroEntra(p, i, info.palavras)} idx={i} luz={pre.luz} par={par} />)}
       </AbsoluteFill>
       <PrimeiroPlano tipo={tipoCen} dx={par.dx} f={f} />
       {/* vinheta e grão */}
@@ -224,12 +230,6 @@ const CenaCartoon: React.FC<{cena: unknown; info: InfoCena; projeto: string; W: 
       {insertView}
       <style>{'.lgc>div>span{margin:0 0.1em}'}</style>
       <div className="lgc"><LegendaKaraoke fala={cena.fala} palavras={info.palavras} estilo={lg} /></div>
-      {/* sons da cena */}
-      {chars.map((p, i) => (p.entra ? <Som key={'s' + i} som="pop" f={quadroEntra(p, i)} vol={0.5} /> : null))}
-      {ins?.tipo === 'celular' && <Som som="toque" f={entraIns + 2} vol={0.45} />}
-      {ins?.tipo === 'celular' && ins.notificacao && <Som som="ding" f={entraIns + 22} vol={0.5} />}
-      {ins?.tipo === 'papel' && <Som som="risco" f={entraIns + 14} vol={0.4} />}
-      {ins?.tipo === 'planilha' && <Som som="pop" f={entraIns + 12} vol={0.4} />}
     </AbsoluteFill>
   );
 };
@@ -273,43 +273,60 @@ const Obstaculo: React.FC<{b: number; objeto: ObjetoObstaculo; sentido: 1 | -1; 
   );
 };
 
+// Camada de imagem de UM segmento (cenas seguidas com a mesma imagem): montada fora das Sequences de cena, então a
+// fronteira entre cenas do mesmo segmento não remonta o Img; a câmera segue contínua pelo quadro do segmento.
+const CamadaPlano: React.FC<{seg: SegmentoPlano<Mov>; dur: number}> = ({seg, dur}) => {
+  const f = useCurrentFrame();
+  return <PlanoImagem plano={seg} t={clamp(f / Math.max(1, dur - 1))} f={seg.ini + f} />;
+};
+
+// Todo o planejamento (segmentos, fronteiras, agenda de sons) é puro e sai de [dados, fps].
+export const planejar = (dados: PropsTemplate['dados'], fps: number) => {
+  const validas = cenasValidas(dados);
+  // segmentos de imagem: a cena que declara `transicao` explícita encerra o segmento e recomeça a câmera
+  const segs = segmentosDePlanos(dados, {fps, ...SEGMENTOS, quebra: (c) => c.transicao !== undefined && c.transicao !== null});
+  const planos = segs.length > 0;
+  const segDe = new Map<number, number>();
+  segs.forEach((sg, k) => sg.cenas.forEach((i) => segDe.set(i, k)));
+  // fronteiras com obstáculo: a cena de entrada declara "transicao" (só cenas com tempo válido)
+  const fronteiras = validas
+    .map(({i, cena, ini}, k) => {
+      const objeto = k === 0 ? null : transicaoDaCena(cena, planos, segDe.get(i) !== undefined && segDe.get(i) === segDe.get(validas[k - 1].i));
+      return objeto ? {b: Math.round(ini * fps), objeto, sentido: (i % 2 ? 1 : -1) as 1 | -1} : null;
+    })
+    .filter(Boolean) as {b: number; objeto: ObjetoObstaculo; sentido: 1 | -1}[];
+  // UMA agenda para o vídeo todo, em quadros absolutos: whoosh das transições (prioridade 2, fica no quadro do visual)
+  // e sons dos inserts e personagens (prioridade 1, cedem), nunca dois a menos de 3 quadros um do outro
+  const eventos: EventoSom[] = [
+    ...fronteiras.map((o) => ({f: o.b - 4, som: 'whoosh', vol: 0.4, prioridade: 2})),
+    ...validas.flatMap(({i, ini}) => eventosDaCena(normCena(dados.roteiro.cenas[i], dados.projeto), palavrasDaCena(dados, i, fps), Math.round(ini * fps), planos)),
+  ];
+  return {segs, planos, fronteiras, sons: agendaDeSons(eventos, {folga: 3}), semCenas: validas.length === 0};
+};
+
 export const Cartoon: React.FC<PropsTemplate> = ({dados}) => {
   const {fps, width, height} = useVideoConfig();
   const frame = useCurrentFrame();
   const fu = faixaUtil(width, height);
   const total = Math.round(numero(dados.tempo?.duracao, 0) * fps);
-  // fronteiras com obstáculo: a cena de entrada declara "transicao" (só cenas com tempo válido)
-  const validas = cenasValidas(dados);
-  const semCenas = validas.length === 0;
-  const fronteiras = validas
-    .map(({i, cena, ini}) => {
-      const objeto = i === 0 ? null : transicaoDaCena(cena, dados.roteiro.cenas[i - 1], dados.projeto);
-      return objeto ? {b: Math.round(ini * fps), objeto, sentido: (i % 2 ? 1 : -1) as 1 | -1} : null;
-    })
-    .filter(Boolean) as {b: number; objeto: ObjetoObstaculo; sentido: 1 | -1}[];
-  // modo planos: quadros (absolutos) dos sons de entrada das cenas; o whoosh do obstáculo se afasta de qualquer um deles
-  const ocupados = validas.flatMap(({i, ini}) => sonsDaCena(normCena(dados.roteiro.cenas[i], dados.projeto), palavrasDaCena(dados, i, fps)).map((s) => Math.round(ini * fps) + s.f));
-  const quadroWhoosh = (b: number) => {
-    let w = b - 4;
-    while (ocupados.some((x) => Math.abs(x - w) < 3)) w -= 3;
-    return w;
-  };
+  const plano = React.useMemo(() => planejar(dados, fps), [dados, fps]);
+  const {segs, planos, fronteiras, sons, semCenas} = plano;
   // cor de destaque do objeto-prova: regra comum da marca (gi sem cores = laranja; livre = âmbar das referências)
   const cor = destaqueDe(dados, '#F2A93B');
-  const segs = segmentosDePlanos(dados, fps);
   const logoOp = suave((frame - (total - 3 * fps)) / 12);
   return (
     <AbsoluteFill style={{background: '#000', fontFamily: FONTE_SORA}}>
       <Fontes />
       {/* palco vazio (montagem ao vivo no começo, ou cenas ainda sem tempo): um set padrão sem personagens */}
-      {semCenas && <CenaCartoon cena={{}} info={{i: 0, dur: Math.max(1, total), ini: 0, palavras: [], primeira: true, ultima: true}} projeto={dados.projeto} W={width} H={height} cor={cor} />}
-      <Cenas dados={dados} render={(c, info) => <CenaCartoon cena={c} info={info} projeto={dados.projeto} W={width} H={height} cor={cor} seg={segs.get(info.i)} />} />
-      {fronteiras.map((o) => (
-        <React.Fragment key={o.b}>
-          <Obstaculo b={o.b} objeto={o.objeto} sentido={o.sentido} W={width} H={height} />
-          <Som som="whoosh" f={quadroWhoosh(o.b)} vol={0.4} />
-        </React.Fragment>
+      {semCenas && <CenaCartoon cena={{}} info={{i: 0, dur: Math.max(1, total), ini: 0, palavras: [], primeira: true, ultima: true}} projeto={dados.projeto} W={width} H={height} cor={cor} planos={false} />}
+      {segs.map((sg) => (
+        <Sequence key={`${sg.src}:${sg.ini}`} from={sg.ini} durationInFrames={Math.max(1, sg.fim - sg.ini)} name="plano">
+          <CamadaPlano seg={sg} dur={Math.max(1, sg.fim - sg.ini)} />
+        </Sequence>
       ))}
+      <Cenas dados={dados} render={(c, info) => <CenaCartoon cena={c} info={info} projeto={dados.projeto} W={width} H={height} cor={cor} planos={planos} />} />
+      {fronteiras.map((o) => <Obstaculo key={o.b} b={o.b} objeto={o.objeto} sentido={o.sentido} W={width} H={height} />)}
+      {sons.map((s, i) => <Som key={`${s.som}:${s.f}:${i}`} som={s.som} f={s.f} vol={s.vol} />)}
       {dados.roteiro.marca === 'gi' && logoOp > 0 && <LogoGI altura={56} direita={Math.round(width * 0.06)} baixo={height - fu.base + 24} opacidade={logoOp} />}
       <Narracao dados={dados} />
     </AbsoluteFill>

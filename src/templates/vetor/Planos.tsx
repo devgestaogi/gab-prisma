@@ -1,31 +1,19 @@
 // Modo "planos de imagem" do vetor: o cenário da cena é uma ilustração vetorial chapada gerada do assunto.
-// Palco quase parado (zoom de 2 a 4% e pan curto, só o suficiente para a imagem respirar), corte seco entre cenas
-// (cada cena é uma Sequence) e véu escuro suave atrás da legenda. Determinístico por quadro.
+// Palco quase parado (zoom de 2 a 4% e pan curto, só o suficiente para a imagem respirar), corte seco entre imagens
+// e véu escuro suave atrás da legenda. Determinístico por quadro.
+// A imagem vive numa camada por SEGMENTO (cenas seguidas com a mesma imagem, de `segmentosDePlanos` da comum), montada em
+// Vetor.tsx numa Sequence do segmento inteiro: o Img não remonta na fronteira entre cenas do mesmo segmento.
 import React from 'react';
 import {AbsoluteFill, Img, useCurrentFrame} from 'remotion';
-import {cenasValidas, imagemDoProjeto} from '../comum';
-import type {DadosT} from '../comum';
-import {normalizaCena} from './normaliza';
-import {PlanoRot, limita} from './util';
+import {A, L, limita} from './util';
 
-// Cenas seguidas com a mesma imagem formam um segmento: a deriva corre pelo quadro absoluto ao longo dele, com movimento e foco da
-// primeira cena do segmento. offset = quadros do início do segmento até o início desta cena; total = duração do segmento.
-export const segmentoDoPlano = (dados: DadosT, fps: number, i: number) => {
-  const v = cenasValidas(dados).map((t) => {
-    const c = normalizaCena(t.cena);
-    const a = Math.round(t.ini * fps);
-    return {i: t.i, plano: c.plano, src: c.plano ? imagemDoProjeto(dados.projeto, 'planos', c.plano.imagem) : null, a, b: Math.max(a + 1, Math.round(t.fim * fps))};
-  });
-  const k = v.findIndex((x) => x.i === i);
-  if (k < 0 || !v[k].src || !v[k].plano) return null;
-  let p = k, u = k;
-  while (p > 0 && v[p - 1].src === v[k].src) p--;
-  while (u < v.length - 1 && v[u + 1].src === v[k].src) u++;
-  return {src: v[k].src as string, plano: v[p].plano as PlanoRot, offset: v[k].a - v[p].a, total: v[u].b - v[p].a};
-};
+export const MOVIMENTOS = ['deriva', 'zoom', 'pan'] as const;
+export type Movimento = (typeof MOVIMENTOS)[number];
 
-// escala sempre cobre a deriva: a sobra de cada lado (escala-1)*lado é maior que o pan
-const deriva = (mov: PlanoRot['movimento'], t: number) => {
+// trajeto da câmera: escala e deslocamento CENTRADO em zero (varia ±amp/2). A amplitude total por eixo é `AMP`.
+const AMP: Record<Movimento, {x: number; y: number}> = {deriva: {x: 28, y: 20}, zoom: {x: 0, y: 0}, pan: {x: 52, y: 0}};
+const SMIN: Record<Movimento, number> = {deriva: 1.03, zoom: 1.01, pan: 1.05};
+const trajeto = (mov: Movimento, t: number) => {
   switch (mov) {
     case 'zoom': return {s: 1.01 + 0.04 * t, x: 0, y: 0};
     case 'pan': return {s: 1.05, x: (t - 0.5) * 52, y: 0};
@@ -33,14 +21,32 @@ const deriva = (mov: PlanoRot['movimento'], t: number) => {
   }
 };
 
-export const PlanoImagem: React.FC<{src: string; plano: PlanoRot; offset: number; total: number}> = ({src, plano, offset, total}) => {
+// A câmera nunca descobre borda. Com origem da escala em (ox, oy) (o foco), uma escala s cobre o quadro se o deslocamento d fica em
+// [-(lado-o)(s-1), o(s-1)] por eixo. Calcula-se a escala mínima que comporta a amplitude do movimento (1 + amp/lado) e o centro do
+// trajeto é empurrado para dentro desse intervalo (foco 0 ou 1 recua o pan para o lado que tem sobra). O intervalo só cresce com s,
+// então o cálculo na escala mínima vale para o movimento todo.
+const centroDentro = (amp: number, lado: number, o: number, s: number) => {
+  const lo = -(lado - o) * (s - 1), hi = o * (s - 1);
+  return Math.min(Math.max(0, lo + amp / 2), hi - amp / 2);
+};
+export const camera = (mov: Movimento, foco: [number, number], t: number) => {
+  const a = AMP[mov];
+  const sMin = Math.max(SMIN[mov], 1 + a.x / L, 1 + a.y / A);
+  const d = trajeto(mov, t);
+  const s = Math.max(d.s, sMin);
+  const ox = foco[0] * L, oy = foco[1] * A;
+  return {s, x: centroDentro(a.x, L, ox, sMin) + d.x, y: centroDentro(a.y, A, oy, sMin) + d.y};
+};
+
+// `total` = duração do segmento em quadros; o Sequence do segmento zera useCurrentFrame no início dele
+export const PlanoImagem: React.FC<{src: string; movimento: Movimento; foco: [number, number]; total: number}> = ({src, movimento, foco, total}) => {
   const f = useCurrentFrame();
-  const t = limita((f + offset) / Math.max(1, total), 0, 1);
-  const d = deriva(plano.movimento, t);
-  const [fx, fy] = plano.foco;
+  const t = limita(f / Math.max(1, total), 0, 1);
+  const c = camera(movimento, foco, t);
+  const [fx, fy] = foco;
   return (
     <AbsoluteFill style={{background: '#10142B', overflow: 'hidden'}}>
-      <AbsoluteFill style={{transformOrigin: `${fx * 100}% ${fy * 100}%`, transform: `translate(${d.x.toFixed(2)}px, ${d.y.toFixed(2)}px) scale(${d.s.toFixed(4)})`}}>
+      <AbsoluteFill style={{transformOrigin: `${fx * 100}% ${fy * 100}%`, transform: `translate(${c.x.toFixed(2)}px, ${c.y.toFixed(2)}px) scale(${c.s.toFixed(4)})`}}>
         <Img src={src} style={{width: '100%', height: '100%', objectFit: 'cover', objectPosition: `${fx * 100}% ${fy * 100}%`}} />
       </AbsoluteFill>
     </AbsoluteFill>

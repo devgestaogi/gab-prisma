@@ -1,8 +1,9 @@
 // Tipos, medidas do mundo e funções de tempo do template diorama-3d-hud.
 // O roteiro vem de agente ou de edição ao vivo: estacoesDe e cenasDe devolvem sempre a forma normalizada
 // (tipo errado vira ausência), no mesmo índice do roteiro, para o resto do template nunca validar nada.
-import {cenasValidas, lista, numero, objeto, texto, umDe} from '../comum';
-import type {DadosT} from '../comum';
+import {cenasValidas, lista, numero, objeto, texto} from '../comum';
+import type {CenaTempo, DadosT} from '../comum';
+import {ajustePilula, ajusteCapitulo, textoCapitulo} from './ajuste';
 
 export type Estacao = {id: string; rotulo: string; palavra?: string};
 export const ICONES_HUD = ['pessoas', 'pedido', 'dinheiro', 'relogio', 'estrela', 'carro', 'lista', 'alvo', 'alerta', 'camera'] as const;
@@ -12,7 +13,6 @@ export type LinhaD = {texto: string; estado?: 'ok' | 'erro' | 'neutro'; etiqueta
 export type CartaoD = {titulo: string; linhas: LinhaD[]};
 export const MOVIMENTOS = ['avanco', 'lateral', 'sobe', 'orbita'] as const;
 export type Movimento = (typeof MOVIMENTOS)[number];
-export type PlanoD = {imagem: string; movimento: Movimento; foco: [number, number]};
 // posição vertical por cena (em 1080x1920): legenda (centro 600, 900, 1130) e cartão de vidro (topo 420, 640, 860)
 export const FAIXAS = ['alto', 'meio', 'baixo'] as const;
 export type Faixa = (typeof FAIXAS)[number];
@@ -32,8 +32,6 @@ export type CenaDio = {
   capitulo?: string;
   progresso?: [number, number];
   carimbo?: string;
-  // modo imagem: plano gerado do assunto (public/<projeto>/planos/<imagem>) com a câmera animada por cima
-  plano?: PlanoD;
   layout?: LayoutD;
   // palavra da fala que dispara cada elemento (senão entra alguns quadros depois do início da cena)
   quando?: {hud?: string; alerta?: string; correcao?: string; cta?: string; cartao?: string; carimbo?: string};
@@ -104,14 +102,6 @@ const normFluxo = (v: unknown): CenaDio['fluxo'] => {
   return {ate: o.ate, travados: typeof o.travados === 'number' && Number.isFinite(o.travados) ? Math.max(0, Math.min(60, Math.floor(o.travados))) : undefined};
 };
 
-const normPlano = (v: unknown): PlanoD | undefined => {
-  const o = objeto(v);
-  if (typeof o.imagem !== 'string' || !o.imagem) return undefined;
-  const f = Array.isArray(o.foco) ? o.foco : [];
-  const c = (x: unknown) => Math.max(0, Math.min(1, numero(x, 0.5)));
-  return {imagem: o.imagem, movimento: umDe(o.movimento, MOVIMENTOS, 'avanco'), foco: [c(f[0]), c(f[1])]};
-};
-
 export const normCena = (c: unknown): CenaDio => {
   const o = objeto(c);
   const q = objeto(o.quando);
@@ -130,7 +120,6 @@ export const normCena = (c: unknown): CenaDio => {
     capitulo: opcional(o.capitulo),
     progresso: normProgresso(o.progresso),
     carimbo: opcional(o.carimbo),
-    plano: normPlano(o.plano),
     layout: normLayout(o.layout),
     quando: {hud: opcional(q.hud), alerta: opcional(q.alerta), correcao: opcional(q.correcao), cta: opcional(q.cta), cartao: opcional(q.cartao), carimbo: opcional(q.carimbo)},
   };
@@ -146,11 +135,12 @@ export const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀
 // cena ativa no instante t (s), só entre as que já têm tempo; sem nenhuma, atual é null (palco vazio)
 export type Contexto = {atual: CenaDio | null; ant: CenaDio | null; ini: number; k: number};
 export const contextoCena = (d: DadosT, t: number): Contexto => {
-  const v = cenasValidas(d);
+  const {validas: v} = planejamentoDe(d);
   if (!v.length) return {atual: null, ant: null, ini: 0, k: -1};
   let k = 0;
   v.forEach((c, j) => { if (c.ini <= t + 1e-6) k = j; });
-  return {atual: normCena(v[k].cena), ant: k > 0 ? normCena(v[k - 1].cena) : null, ini: v[k].ini, k};
+  const cs = planejamentoDe(d).cenas;
+  return {atual: cs[v[k].i], ant: k > 0 ? cs[v[k - 1].i] : null, ini: v[k].ini, k};
 };
 
 // maior índice de estação que a cena toca (foco ou fim do fluxo); -1 se nenhum
@@ -193,21 +183,25 @@ export const fluxoPorCena = (d: DadosT): CfgFluxo[] => {
 // ── posição por cena: legenda e cartão de vidro sem cobrir o assunto, sem se tocar e sem bater na pilha do topo ──
 export const LEGENDA_Y: Record<Faixa, number> = {alto: 600, meio: 900, baixo: 1130};
 export const CARTAO_TOPO: Record<Faixa, number> = {alto: 420, meio: 640, baixo: 860};
+export const CARTAO_TOPO_MIN = 270; // nada acima disto (a interface do Reels cobre o resto)
 export const CARTAO_FIM_MAX = 1230; // nada abaixo disto (a interface do Reels cobre o resto)
+export const CARTAO_ESCALA_MIN = 0.7; // o cartão encolhe até 70% antes de perder linhas
 export const GAP_PILHA = 18; // espaço vertical fixo entre as caixas da pilha do topo
 const LEGENDA_MEIA_ALTURA = 66; // duas linhas de 52 px
 const FOLGA = 24;
 
-// medidas das caixas (px) usadas para o cálculo estático; o desenho usa a altura real do DOM (flex), isto só decide o layout
+// medidas das caixas (px) usadas para o cálculo estático; o desenho usa a altura real do DOM (flex), isto só decide o layout.
+// Pílula e capítulo têm altura que depende do texto (até 2 linhas): vêm de ajuste.ts, a mesma conta do desenho.
 export const ALT_HUD = 104;
 export const ALT_ILUSTRATIVO = 36;
-export const ALT_CAPITULO = 72;
-export const ALT_CAPITULO_PROG = 90;
-export const ALT_PILULA = 92;
-export const alturaCartao = (c: CartaoD) => 2 + 26 + 18 + (c.titulo ? 40 : 0) + c.linhas.length * (c.linhas.length > 3 ? 76 : 88);
+// altura do cartão (px, sem escala) com n linhas visíveis; a linha encolhe de 88 para 76 acima de 3
+export const alturaCartaoN = (temTitulo: boolean, n: number) => 2 + 26 + 18 + (temTitulo ? 40 : 0) + n * (n > 3 ? 76 : 88);
+export const alturaCartao = (c: CartaoD) => alturaCartaoN(!!c.titulo, c.linhas.length);
 export const topoDaPilha = (cenas: CenaDio[]) => (cenas.some((c) => c.hud) ? 330 - ALT_HUD / 2 : 285);
 
-export type PosCena = {legenda: number; cartao: number; fimPilha: number};
+export type CartaoPos = {topo: number; escala: number; linhas: number};
+// cartao é null quando a cena não tem cartão OU quando nada cabe sem invadir a pilha do topo ou a legenda (o cartão some)
+export type PosCena = {legenda: number; cartao: CartaoPos | null; fimPilha: number};
 export const layoutDasCenas = (cenas: CenaDio[]): PosCena[] => {
   const topo = topoDaPilha(cenas);
   let hud: CenaDio | null = null;
@@ -217,25 +211,53 @@ export const layoutDasCenas = (cenas: CenaDio[]): PosCena[] => {
     if (c.capitulo) cap = c;
     const alturas: number[] = [];
     if (hud) alturas.push(ALT_HUD + (hud.ilustrativo ? ALT_ILUSTRATIVO : 0));
-    if (cap) alturas.push(cap.progresso ? ALT_CAPITULO_PROG : ALT_CAPITULO);
-    [c.alerta, c.correcao, c.cta].forEach((p) => { if (p) alturas.push(ALT_PILULA); });
+    if (cap) alturas.push(ajusteCapitulo(textoCapitulo(cap.capitulo ?? ''), !!cap.progresso).alt);
+    [[c.alerta, true], [c.correcao, true], [c.cta, false]].forEach(([p, ico]) => { if (p) alturas.push(ajustePilula(p as string, ico as boolean).alt); });
     const fimPilha = alturas.length ? topo + alturas.reduce((a, b) => a + b, 0) + GAP_PILHA * (alturas.length - 1) : 0;
     // legenda: a faixa pedida; se a pilha do topo chegar nela, desce até folgar
     const pedida = LEGENDA_Y[c.layout?.legenda ?? 'baixo'];
     const legenda = fimPilha ? Math.min(LEGENDA_Y.baixo, Math.max(pedida, fimPilha + FOLGA + LEGENDA_MEIA_ALTURA)) : pedida;
-    // cartão: a faixa pedida; cede para a outra livre se bater na legenda, na pilha ou no limite de baixo
-    let cartao = CARTAO_TOPO[c.layout?.cartao ?? 'meio'];
-    if (c.cartao) {
-      const h = alturaCartao(c.cartao);
-      const pedido = c.layout?.cartao ?? 'meio';
-      const ordem = [pedido, ...FAIXAS.filter((f) => f !== pedido).sort((a, b) => Math.abs(CARTAO_TOPO[a] - CARTAO_TOPO[pedido]) - Math.abs(CARTAO_TOPO[b] - CARTAO_TOPO[pedido]))];
-      // a faixa nunca entra na pilha do topo: começa logo abaixo dela quando a pilha chega lá
-      const minimo = fimPilha ? fimPilha + GAP_PILHA : 0;
-      const topos = ordem.map((f) => Math.min(Math.max(CARTAO_TOPO[f], minimo), CARTAO_FIM_MAX - h));
-      const livre = (t: number) => t + h <= legenda - LEGENDA_MEIA_ALTURA - FOLGA || t >= legenda + LEGENDA_MEIA_ALTURA + FOLGA;
-      const achou = topos.find(livre);
-      cartao = achou ?? topos[0];
-    }
-    return {legenda, cartao, fimPilha};
+    return {legenda, cartao: c.cartao ? posicaoDoCartao(c, legenda, fimPilha) : null, fimPilha};
   });
+};
+
+// Cartão: tenta a faixa pedida e as outras (da mais próxima à mais distante); se nenhuma servir, encolhe a escala até 70%
+// e, se ainda não servir, tira linhas visíveis (as últimas saem). Toda tentativa revalida TODAS as restrições:
+// abaixo da pilha do topo (+18 px), dentro de 270..1230 e fora da faixa da legenda (± meia altura + folga).
+const posicaoDoCartao = (c: CenaDio, legenda: number, fimPilha: number): CartaoPos | null => {
+  const cartao = c.cartao as CartaoD;
+  const minimo = Math.max(CARTAO_TOPO_MIN, fimPilha ? fimPilha + GAP_PILHA : 0);
+  const pedido = c.layout?.cartao ?? 'meio';
+  const ordem = [pedido, ...FAIXAS.filter((f) => f !== pedido).sort((a, b) => Math.abs(CARTAO_TOPO[a] - CARTAO_TOPO[pedido]) - Math.abs(CARTAO_TOPO[b] - CARTAO_TOPO[pedido]))];
+  const bandaIni = legenda - LEGENDA_MEIA_ALTURA - FOLGA;
+  const bandaFim = legenda + LEGENDA_MEIA_ALTURA + FOLGA;
+  const serve = (t: number, h: number) => t >= minimo - 1e-6 && t + h <= CARTAO_FIM_MAX + 1e-6 && (t + h <= bandaIni + 1e-6 || t >= bandaFim - 1e-6);
+  const escalas = [1, 0.95, 0.9, 0.85, 0.8, 0.75, CARTAO_ESCALA_MIN];
+  const total = cartao.linhas.length;
+  const tentar = (n: number, esc: number): CartaoPos | null => {
+    const h = alturaCartaoN(!!cartao.titulo, n) * esc;
+    const candidatos = [
+      ...ordem.map((f) => Math.min(Math.max(CARTAO_TOPO[f], minimo), CARTAO_FIM_MAX - h)), // faixas pedidas, empurradas para caber
+      minimo, // logo abaixo da pilha
+      bandaIni - h, // logo acima da legenda
+      bandaFim, // logo abaixo da legenda
+    ];
+    const t = candidatos.find((x) => serve(x, h));
+    return t === undefined ? null : {topo: Math.round(t), escala: esc, linhas: n};
+  };
+  for (let n = total; n >= (total ? 1 : 0); n--) {
+    // com as linhas todas só a escala cede; só depois de esgotar a escala (70%) uma linha sai
+    const esc = n === total ? escalas : [CARTAO_ESCALA_MIN];
+    for (const e of esc) { const r = tentar(n, e); if (r) return r; }
+  }
+  return null;
+};
+
+// ── planejamento por frame, sem refazer a normalização a cada quadro ───────────────────────────────────────────────
+// cache por objeto de dados (o estúdio entrega um objeto novo a cada edição); só guarda resultado puro
+const _doDados = new WeakMap<DadosT, {validas: CenaTempo[]; cenas: CenaDio[]; est: Estacao[]}>();
+export const planejamentoDe = (d: DadosT) => {
+  let p = _doDados.get(d);
+  if (!p) { p = {validas: cenasValidas(d), cenas: cenasDe(d), est: estacoesDe(d)}; _doDados.set(d, p); }
+  return p;
 };

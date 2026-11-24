@@ -1,12 +1,8 @@
-// Modo "planos de imagem" do diorama: cada cena mostra uma imagem gerada do assunto e a câmera nunca para.
-// Cenas seguidas com a mesma imagem formam um segmento (movimento sem emenda); entre segmentos há um voo através:
-// o plano que sai acelera a escala, desfoca e some; o que entra começa menor e desfocado e assenta.
-// Tudo é função do quadro absoluto (determinístico, sem estado entre quadros).
 import React from 'react';
 import {AbsoluteFill, Img, useCurrentFrame, useVideoConfig} from 'remotion';
-import {cenasValidas, imagemDoProjeto} from '../comum';
+import {segmentosDePlanos} from '../comum';
 import type {DadosT} from '../comum';
-import {FUNDO, cenasDe, layoutDasCenas} from './tipos';
+import {FUNDO, MOVIMENTOS} from './tipos';
 import type {Movimento} from './tipos';
 
 export type Segmento = {src: string; movimento: Movimento; foco: [number, number]; iniF: number; fimF: number};
@@ -15,40 +11,14 @@ const SAI = 10; // quadros do voo de saída (termina na troca)
 const ENTRA = 10; // quadros da entrada (começa 8 antes da troca, sobrepondo)
 const ANTES = 8;
 
-// plano de cada cena do roteiro (mesmo índice): o próprio, senão o anterior, senão o próximo; null sem nenhum plano válido
-const planosPorCena = (dados: DadosT) => {
-  const cs = cenasDe(dados);
-  const proprio = cs.map((c) => (c.plano && imagemDoProjeto(dados.projeto, 'planos', c.plano.imagem) ? c.plano : null));
-  const res = proprio.slice();
-  let ult: (typeof res)[number] = null;
-  res.forEach((p, i) => { if (p) ult = p; else res[i] = ult; });
-  let prox: (typeof res)[number] = null;
-  for (let i = res.length - 1; i >= 0; i--) { if (res[i]) prox = res[i]; else res[i] = prox; }
-  return {res, algum: proprio.some(Boolean)};
-};
-
-export const modoImagem = (dados: DadosT): boolean => planosPorCena(dados).algum;
-
-export const segmentosDePlanos = (dados: DadosT, fps: number): Segmento[] => {
-  const {res, algum} = planosPorCena(dados);
-  if (!algum) return [];
-  const segs: Segmento[] = [];
-  cenasValidas(dados).forEach((t) => {
-    const p = res[t.i];
-    if (!p) return;
-    const src = imagemDoProjeto(dados.projeto, 'planos', p.imagem);
-    if (!src) return;
-    const a = Math.round(t.ini * fps);
-    const b = Math.max(a + 1, Math.round(t.fim * fps));
-    const ult = segs[segs.length - 1];
-    if (ult && ult.src === src) ult.fimF = b;
-    else segs.push({src, movimento: p.movimento, foco: p.foco, iniF: segs.length ? a : 0, fimF: b});
-  });
-  return segs;
-};
+// Segmentos do modo imagem (mecanismo comum: só cenas válidas, só imagem que existe no manifesto, herança do plano anterior
+// e depois do próximo, cenas seguidas com a mesma imagem num segmento só). Lista vazia = modo procedural.
+// O primeiro segmento começa no quadro 0 (o vídeo nunca abre vazio, mesmo que a 1ª cena válida comece depois).
+export const segmentosDoDiorama = (dados: DadosT, fps: number): Segmento[] =>
+  segmentosDePlanos(dados, {fps, movimentos: MOVIMENTOS, padrao: 'avanco'}).map((s, k) => ({src: s.src, movimento: s.movimento, foco: s.foco, iniF: k ? s.ini : 0, fimF: s.fim}));
 
 // instantes (quadros) das trocas de segmento, para o som de voo
-export const trocasDePlanos = (dados: DadosT, fps: number): number[] => segmentosDePlanos(dados, fps).slice(1).map((s) => s.iniF - ANTES);
+export const trocasDePlanos = (segs: Segmento[]): number[] => segs.slice(1).map((s) => s.iniF - ANTES);
 
 const lim = (x: number) => Math.max(0, Math.min(1, x));
 const suave = (x: number) => { const t = lim(x); return t * t * (3 - 2 * t); };
@@ -98,7 +68,7 @@ const Plano: React.FC<{seg: Segmento; prox: Segmento | undefined; primeiro: bool
 
 // centro (px) do véu atrás da legenda: acompanha a posição da legenda de cada cena, com troca suave de 8 quadros
 const TROCA_VEU = 8;
-const centroDoVeu = (marcas: {f: number; c: number}[], f: number) => {
+const centroDoVeu = (marcas: MarcaVeu[], f: number) => {
   let k = -1;
   marcas.forEach((m, j) => { if (m.f <= f) k = j; });
   if (k < 0) return marcas.length ? marcas[0].c : 1130;
@@ -106,14 +76,10 @@ const centroDoVeu = (marcas: {f: number; c: number}[], f: number) => {
   return ant + (marcas[k].c - ant) * suave((f - marcas[k].f) / TROCA_VEU);
 };
 
-export const Planos: React.FC<{dados: DadosT}> = ({dados}) => {
+// segs e marcas vêm memorizados do Diorama (planejamento por [dados, fps], nunca por quadro)
+export type MarcaVeu = {f: number; c: number};
+export const Planos: React.FC<{segs: Segmento[]; marcas: MarcaVeu[]}> = ({segs, marcas}) => {
   const f = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const segs = React.useMemo(() => segmentosDePlanos(dados, fps), [dados, fps]);
-  const marcas = React.useMemo(() => {
-    const lay = layoutDasCenas(cenasDe(dados));
-    return cenasValidas(dados).map((t) => ({f: Math.round(t.ini * fps), c: lay[t.i]?.legenda ?? 1130}));
-  }, [dados, fps]);
   const c = Math.round(centroDoVeu(marcas, f));
   return (
     <AbsoluteFill style={{background: FUNDO}}>

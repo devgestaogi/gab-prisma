@@ -53,11 +53,3 @@ export const empilha = (blocos: Bloco[], pos: PosVertical, legendaY: number, cab
   coloca(blocos, limita(centro - H / 2, min, Math.max(min, ZONA.base - H)), 0.7);
   return res;
 };
-
-// sons: sem dois no mesmo quadro (mínimo de 3 quadros entre quaisquer dois), na ordem em que entram
-export type EventoSom = {som: string; f: number; vol: number};
-export const agendaSons = (evs: (EventoSom | false | null | undefined)[]): EventoSom[] => {
-  const ordem = evs.filter((e): e is EventoSom => !!e).map((e, i) => ({e, i})).sort((a, b) => a.e.f - b.e.f || a.i - b.i);
-  let ult = -99;
-  return ordem.map(({e}) => { const f = Math.max(0, e.f, ult + 3); ult = f; return {...e, f}; });
-};
